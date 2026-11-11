@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Groovy \u2014 a mobile-first RSS podcast player for Cloudflare Workers and D1",
   "scripts": {
-    "dev": "vite",
+    "dev": "npm run build && node scripts/dev.mjs",
     "build": "tsc --noEmit && vite build",
     "test": "node --import tsx --test tests/*.test.ts",
     "preview": "wrangler dev --port 8788",

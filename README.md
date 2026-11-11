@@ -21,13 +21,12 @@ USER_PASSWORD_HASHES='{"my-account":"scrypt$32768$8$3$..."}'
 Then start the app:
 
 ```sh
-npm run build
-npm run preview
+npm run dev
 ```
 
-Open the URL Wrangler prints and enter the password you chose. The account ID is an administrator identifier; listeners enter only their password. No Cloudflare login or database write happens during hash generation.
+Open the URL Vite prints and enter the password you chose. The account ID is an administrator identifier; listeners enter only their password. No Cloudflare login or database write happens during hash generation.
 
-For frontend development, keep `npm run preview` running on port 8788 and run `npm run dev` in another terminal. Vite proxies `/api` to Wrangler; Wrangler watches the Worker API files; Vite handles frontend hot reload. `.dev.vars` is ignored by Git. Manual RSS entry works without directory credentials; search uses Podcast Index and requires both credentials below.
+`npm run dev` builds the assets and starts both Vite and Wrangler; Ctrl+C stops both. Vite proxies `/api` to Wrangler on port 8788; Wrangler watches the Worker API files; Vite handles frontend hot reload. To preview the production build alone, use `npm run build` followed by `npm run preview`. `.dev.vars` is ignored by Git. Manual RSS entry works without directory credentials; search uses Podcast Index and requires both credentials below.
 
 For podcast search, get a key and secret from [Podcast Index](https://api.podcastindex.org/) and add both to `.dev.vars`:
 
