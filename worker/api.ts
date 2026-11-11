@@ -71,11 +71,12 @@ export async function handleApi(request: Request, env: ApiEnv, ctx: Pick<Executi
       const results = await db.batch([
         db.prepare('SELECT speed,skip_back AS skipBack,skip_forward AS skipForward FROM users WHERE id=?').bind(user),
         db.prepare('SELECT url,title,author,artwork FROM subscriptions WHERE user_id=? ORDER BY title').bind(user),
-        db.prepare('SELECT episode_id,position,playback,completed FROM progress WHERE user_id=? ORDER BY updated DESC, rowid DESC').bind(user),
+        db.prepare('SELECT episode_id,position,playback,completed,updated FROM progress WHERE user_id=? ORDER BY updated DESC, rowid DESC').bind(user),
         db.prepare('SELECT url,speed FROM podcast_speeds WHERE user_id=?').bind(user),
       ]);
       const resume = results[2].results.filter((r:any)=>!r.completed).map((r:any)=>({id:r.episode_id,position:r.position,playback:r.playback?JSON.parse(r.playback):null}));
-      return json({resume,episodePodcasts:Object.fromEntries(results[2].results.filter((r:any)=>r.playback).map((r:any)=>[r.episode_id,JSON.parse(r.playback).podcast])),completed:Object.fromEntries(results[2].results.map((r:any)=>[r.episode_id,!!r.completed])),podcastSpeeds:Object.fromEntries(results[3].results.map((r:any)=>[r.url,r.speed])),settings:results[0].results[0], subscriptions:results[1].results,progress:Object.fromEntries(results[2].results.map((r:any)=>[r.episode_id,r.position]))});
+      const history = results[2].results.filter((r:any)=>r.playback&&(r.position>0||r.completed)).map((r:any)=>({...JSON.parse(r.playback),position:r.position,completed:!!r.completed,updatedAt:r.updated}));
+      return json({resume,history,episodePodcasts:Object.fromEntries(results[2].results.filter((r:any)=>r.playback).map((r:any)=>[r.episode_id,JSON.parse(r.playback).podcast])),completed:Object.fromEntries(results[2].results.map((r:any)=>[r.episode_id,!!r.completed])),podcastSpeeds:Object.fromEntries(results[3].results.map((r:any)=>[r.url,r.speed])),settings:results[0].results[0], subscriptions:results[1].results,progress:Object.fromEntries(results[2].results.map((r:any)=>[r.episode_id,r.position]))});
     }
     if (path === 'settings' && method === 'PUT') {
       const {speed,skipBack,skipForward,podcastUrl,override} = await body();

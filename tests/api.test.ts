@@ -104,14 +104,14 @@ test('resume history excludes completed episodes and stays isolated per account'
     await request('progress','PUT',{id:'two',position:20,playback:second,completed:false},auth);
     sqlite.prepare('UPDATE progress SET updated=1 WHERE episode_id=?').run('one');
     let me=await (await request('me','GET',undefined,auth)).json() as any;
-    assert.deepEqual(me.completed,{one:false,two:false});assert.deepEqual(me.resume.map((r:any)=>r.id),['two','one']);assert.equal(me.resume[0].playback.episode.title,'Episode');assert.equal(me.resume[0].position,20);
+    assert.deepEqual(me.history.map((entry:any)=>entry.episode.id),['two','one']);assert.equal(me.history[1].updatedAt,1);assert.equal(me.history[0].podcast.title,'Show');assert.equal(me.history[0].completed,false);assert.deepEqual(me.completed,{one:false,two:false});assert.deepEqual(me.resume.map((r:any)=>r.id),['two','one']);assert.equal(me.resume[0].playback.episode.title,'Episode');assert.equal(me.resume[0].position,20);
     await request('progress','PUT',{id:'two',position:100,playback:second,completed:true},auth);
-    me=await (await request('me','GET',undefined,auth)).json() as any;assert.deepEqual(me.resume.map((r:any)=>r.id),['one']);assert.equal(me.completed.two,true);assert.deepEqual(me.episodePodcasts.two,playback.podcast);
+    me=await (await request('me','GET',undefined,auth)).json() as any;assert.deepEqual(me.resume.map((r:any)=>r.id),['one']);assert.equal(me.completed.two,true);assert.equal(me.history[0].completed,true);assert.deepEqual(me.episodePodcasts.two,playback.podcast);
     assert.equal((await request('progress','PUT',{id:'one',position:20,playback:{...playback,episode:{...playback.episode,audio:'javascript:alert(1)'}}},auth)).status,400);
     const bob=await request('login','POST',{password:'bob'.repeat(10)});const bobAuth=bob.headers.get('set-cookie')!.split(';')[0];
-    const bobState=await (await request('me','GET',undefined,bobAuth)).json() as any;assert.deepEqual(bobState.resume,[]);assert.deepEqual(bobState.completed,{});assert.deepEqual(bobState.episodePodcasts,{});
+    const bobState=await (await request('me','GET',undefined,bobAuth)).json() as any;assert.deepEqual(bobState.history,[]);assert.deepEqual(bobState.resume,[]);assert.deepEqual(bobState.completed,{});assert.deepEqual(bobState.episodePodcasts,{});
     await request('progress','PUT',{id:'two',position:0,playback:second,completed:false},auth);
-    me=await (await request('me','GET',undefined,auth)).json() as any;assert.equal(me.resume[0].id,'two');assert.equal(me.completed.two,false);assert.equal(me.progress.two,0);
+    me=await (await request('me','GET',undefined,auth)).json() as any;assert.equal(me.resume[0].id,'two');assert.equal(me.completed.two,false);assert.equal(me.progress.two,0);assert.deepEqual(me.history.map((entry:any)=>entry.episode.id),['one']);
   }finally{sqlite.close();}
 });
 test('short chosen passwords provision accounts on first login and removed users lose access',async()=>{
