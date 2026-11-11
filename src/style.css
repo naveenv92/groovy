@@ -143,10 +143,26 @@ button.now-playing{padding:0;text-align:left;border-radius:8px}
 .modal .podcast-speed-override input{width:18px;height:18px;flex-shrink:0;margin:1px 0 0;padding:0;accent-color:var(--green)}
 
 .episode-play.in-progress{background:linear-gradient(#ffdf85,#efc35d);color:#103e32;border-color:#aa792d;box-shadow:0 2px 0 #956525,inset 0 0 0 2px #fff0bf}
-.episode.completed{background:#d9d5ca66;filter:grayscale(1);border-radius:8px}
+.episode.completed .episode-play,.episode.completed .episode-body{filter:grayscale(1)}
 .episode.completed h3,.episode.completed p,.episode.completed .episode-meta{color:#706e66}
 
 .episode{padding-left:16px;padding-right:16px}
 
 button.feed-description{padding:0;text-align:left;width:100%;line-height:1.65}
 .feed-description.expanded{display:block;-webkit-line-clamp:unset;overflow:visible}
+
+.episode{cursor:pointer}
+.episode-detail{max-width:1000px;margin:0 auto}
+.episode-detail-hero{display:flex;align-items:center;gap:36px;margin:12px 0 40px}
+.episode-detail-hero>.art{width:260px;flex-shrink:0}
+.episode-detail-hero>div:last-child{min-width:0}
+.episode-detail h1{font-size:38px;letter-spacing:-1px;line-height:1.2;margin:14px 0 24px;overflow-wrap:anywhere}
+.episode-detail-description{border-top:1px solid var(--line);padding-top:28px}
+.episode-detail-description h2{font-size:24px;margin-bottom:18px}
+.episode-detail-description p{font-size:15px;line-height:1.9;color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere}
+@media(max-width:760px){.episode-detail-hero{flex-direction:column;align-items:flex-start;gap:24px;margin-top:24px}.episode-detail-hero>.art{width:min(100%,280px);align-self:center}.episode-detail h1{font-size:30px}.episode-detail-description p{font-size:14px}}
+
+.episode-detail-actions{display:flex;align-items:center;flex-wrap:wrap;gap:12px}
+.episode-detail-actions>.primary,.episode-detail-actions>.secondary{flex:1;min-width:0;min-height:48px;padding:12px 18px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:650;border-radius:12px}
+
+.episode-detail-actions{width:100%;max-width:400px}
