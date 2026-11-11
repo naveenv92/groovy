@@ -193,3 +193,5 @@ button.now-playing:active:not(:disabled){transform:none}
 .library-list .podcast-card p{font-size:13px}
 @media(max-width:760px){.library-list .podcast-card{gap:14px;padding:16px 0}.library-list .podcast-card .art{width:56px;height:56px}.library-list .podcast-card h3{font-size:16px}.library-list .podcast-card p{font-size:12px}}
 .library-list .podcast-card:last-child{border-bottom:0}
+
+.episode-pagination{display:flex;flex-direction:column;align-items:center;gap:14px;padding:28px 0}

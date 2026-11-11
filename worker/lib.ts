@@ -51,7 +51,7 @@ export function parseFeed(xml: string, url: string): Feed {
   return {
     url, title: text(channel.title), author: text(channel['itunes:author'] || channel.author), artwork,
     description: text(channel.description),
-    episodes: array(channel.item).slice(0, 500).flatMap(item => {
+    episodes: array(channel.item).flatMap(item => {
       const enclosure = array(item.enclosure).find(e => !e['@_type'] || String(e['@_type']).startsWith('audio/'));
       const audio = mediaUrl(enclosure?.['@_url'], url);
       if (!audio) return [];

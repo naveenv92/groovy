@@ -120,7 +120,7 @@ export async function handleApi(request: Request, env: ApiEnv, ctx: Pick<Executi
       return value;
     }
     async function loadFeed(feedUrl: string) {
-      return await cached(`feed:${feedUrl}`,async()=>parseFeed(await fetchLimited(feedUrl,{'Accept':'application/rss+xml,application/xml,text/xml','User-Agent':'Groovy/1.0'},12_000_000),feedUrl)) as ReturnType<typeof parseFeed>;
+      return await cached(`feed:all:${feedUrl}`,async()=>parseFeed(await fetchLimited(feedUrl,{'Accept':'application/rss+xml,application/xml,text/xml','User-Agent':'Groovy/1.0'},12_000_000),feedUrl)) as ReturnType<typeof parseFeed>;
     }
     if (path === 'feed' && method === 'GET') return json(await loadFeed(publicUrl(url.searchParams.get('url') || '')));
     if (path === 'search' && method === 'GET') {

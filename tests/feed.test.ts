@@ -32,3 +32,10 @@ test('credential digests are deterministic and do not store plaintext',async()=>
 
 test('DNS validation rejects private, loopback, mapped IPv6, and link-local addresses',()=>{for(const ip of ['10.1.1.1','127.0.0.1','169.254.169.254','172.16.0.1','192.168.0.1','100.64.0.1','::1','::ffff:127.0.0.1','fe80::1','fc00::1'])assert.equal(publicAddress(ip),false);assert.equal(publicAddress('1.1.1.1'),true);assert.equal(publicAddress('2606:4700:4700::1111'),true);});
 test('rejects public hostnames that resolve privately before fetching the feed',async()=>{const original=globalThis.fetch;try{globalThis.fetch=async()=>Response.json({Answer:[{type:1,data:'10.0.0.1'}]});await assert.rejects(fetchLimited('https://feeds.example.org/rss'),/public internet/);}finally{globalThis.fetch=original;}});
+
+test('feeds include audio episodes beyond the first 500 entries',()=>{
+  const items=Array.from({length:505},(_,index)=>`<item><title>Episode ${index}</title><enclosure url="https://example.org/${index}.mp3" type="audio/mpeg"/></item>`).join('');
+  const feed=parseFeed(`<rss><channel><title>Full archive</title><item><title>No audio</title></item>${items}</channel></rss>`,'https://example.org/feed');
+  assert.equal(feed.episodes.length,505);
+  assert.equal(feed.episodes[504].title,'Episode 504');
+});
