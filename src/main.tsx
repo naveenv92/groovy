@@ -223,7 +223,7 @@ function App() {
     navigator.mediaSession.metadata=new MediaMetadata({...metadata,artwork:artwork?[{src:artwork}]:[]});
     let cancelled=false;
     void mediaArtwork(artwork).then(images=>{if(!cancelled&&currentRef.current?.episode.id===episode.id)navigator.mediaSession.metadata=new MediaMetadata({...metadata,artwork:images});});
-    const handlers: [MediaSessionAction,MediaSessionActionHandler][]=[['play',()=>{void audio.current?.play().catch(()=>setError('Tap play to resume.'));}],['pause',()=>audio.current?.pause()],['seekbackward',d=>d.seekOffset?seek((audio.current?.currentTime||0)-d.seekOffset):skip(-1)],['seekforward',d=>d.seekOffset?seek((audio.current?.currentTime||0)+d.seekOffset):skip(1)],['seekto',d=>{if(d.seekTime!==undefined)seek(d.seekTime);}]];
+    const handlers: [MediaSessionAction,MediaSessionActionHandler][]=[['play',()=>{void audio.current?.play().catch(()=>setError('Tap play to resume.'));}],['pause',()=>audio.current?.pause()],['previoustrack',()=>skip(-1)],['nexttrack',()=>skip(1)],['seekbackward',d=>d.seekOffset?seek((audio.current?.currentTime||0)-d.seekOffset):skip(-1)],['seekforward',d=>d.seekOffset?seek((audio.current?.currentTime||0)+d.seekOffset):skip(1)],['seekto',d=>{if(d.seekTime!==undefined)seek(d.seekTime);}]];
     for(const [name,handler]of handlers){try{navigator.mediaSession.setActionHandler(name,handler);}catch{/* Unsupported action on this browser. */}}
     return()=>{cancelled=true;for(const [name]of handlers){try{navigator.mediaSession.setActionHandler(name,null);}catch{}}};
   },[current]);
