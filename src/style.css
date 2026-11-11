@@ -168,3 +168,10 @@ button.feed-description{display:block;padding:0;text-align:left;width:100%;line-
 .episode-detail-actions>.primary,.episode-detail-actions>.secondary{flex:1;min-width:0;min-height:48px;padding:12px 18px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:650;border-radius:12px}
 
 .episode-detail-actions{width:100%;max-width:400px}
+
+button.brand{padding:0;text-align:left}
+button.brand{-webkit-tap-highlight-color:transparent;user-select:none}
+button.brand:active:not(:disabled){transform:none}
+.player:not(.player-expanded){-webkit-tap-highlight-color:transparent}
+button.now-playing:active:not(:disabled){transform:none}
+.podcast-card{-webkit-tap-highlight-color:transparent}
