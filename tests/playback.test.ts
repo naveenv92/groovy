@@ -35,7 +35,7 @@ test('snapshots keep actual duration without embedding the feed episode list',()
 });
 
 test('effective playback speed uses the current podcast override and falls back to the account default',()=>{
-  const account={settings:{speed:1.25,skipBack:15,skipForward:30},podcastSpeeds:{'https://feeds.example.org/a':1.75},subscriptions:[],progress:{},completed:{},resume:[]};
+  const account={settings:{speed:1.25,skipBack:15,skipForward:30},podcastSpeeds:{'https://feeds.example.org/a':1.75},subscriptions:[],progress:{},completed:{},episodePodcasts:{},resume:[]};
   assert.equal(playbackSpeed(account,'https://feeds.example.org/a'),1.75);
   assert.equal(playbackSpeed(account,'https://feeds.example.org/b'),1.25);
   assert.equal(playbackSpeed(account),1.25);
