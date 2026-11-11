@@ -69,7 +69,7 @@ export async function handleApi(request: Request, env: ApiEnv, ctx: Pick<Executi
         db.prepare('SELECT url,speed FROM podcast_speeds WHERE user_id=?').bind(user),
       ]);
       const resume = results[2].results.filter((r:any)=>!r.completed).map((r:any)=>({id:r.episode_id,position:r.position,playback:r.playback?JSON.parse(r.playback):null}));
-      return json({resume,podcastSpeeds:Object.fromEntries(results[3].results.map((r:any)=>[r.url,r.speed])),settings:results[0].results[0], subscriptions:results[1].results,progress:Object.fromEntries(results[2].results.map((r:any)=>[r.episode_id,r.position]))});
+      return json({resume,completed:Object.fromEntries(results[2].results.map((r:any)=>[r.episode_id,!!r.completed])),podcastSpeeds:Object.fromEntries(results[3].results.map((r:any)=>[r.url,r.speed])),settings:results[0].results[0], subscriptions:results[1].results,progress:Object.fromEntries(results[2].results.map((r:any)=>[r.episode_id,r.position]))});
     }
     if (path === 'settings' && method === 'PUT') {
       const {speed,skipBack,skipForward,podcastUrl,override} = await body();
