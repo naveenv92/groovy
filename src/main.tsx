@@ -5,6 +5,7 @@ import type { Account, Episode, Feed, Podcast, Settings } from './types';
 import './style.css';
 import { filterEpisodes, sortEpisodes } from './episodes';
 import { listeningStats } from './stats';
+import { mediaArtwork } from './media-artwork';
 import { seekPosition, playbackSpeed, findResume, playbackSnapshot, loadPaused } from './playback';
 
 async function api<T>(path: string, method='GET', data?: unknown, keepalive=false): Promise<T> {
@@ -190,10 +191,14 @@ function App() {
   useEffect(()=>{
     if(!current||!('mediaSession'in navigator))return;
     const {episode,podcast}=current;
-    navigator.mediaSession.metadata=new MediaMetadata({title:episode.title,artist:podcast.title,album:podcast.title,artwork:episode.artwork?[{src:episode.artwork}]:[]});
+    const artwork=episode.artwork||podcast.artwork;
+    const metadata={title:episode.title,artist:podcast.title,album:podcast.title};
+    navigator.mediaSession.metadata=new MediaMetadata({...metadata,artwork:artwork?[{src:artwork}]:[]});
+    let cancelled=false;
+    void mediaArtwork(artwork).then(images=>{if(!cancelled)navigator.mediaSession.metadata=new MediaMetadata({...metadata,artwork:images});});
     const handlers: [MediaSessionAction,MediaSessionActionHandler][]=[['play',()=>{void audio.current?.play().catch(()=>setError('Tap play to resume.'));}],['pause',()=>audio.current?.pause()],['seekbackward',d=>d.seekOffset?seek((audio.current?.currentTime||0)-d.seekOffset):skip(-1)],['seekforward',d=>d.seekOffset?seek((audio.current?.currentTime||0)+d.seekOffset):skip(1)],['seekto',d=>{if(d.seekTime!==undefined)seek(d.seekTime);}]];
     for(const [name,handler]of handlers){try{navigator.mediaSession.setActionHandler(name,handler);}catch{/* Unsupported action on this browser. */}}
-    return()=>{for(const [name]of handlers){try{navigator.mediaSession.setActionHandler(name,null);}catch{}}};
+    return()=>{cancelled=true;for(const [name]of handlers){try{navigator.mediaSession.setActionHandler(name,null);}catch{}}};
   },[current]);
   useEffect(()=>{
     if(!settingsOpen&&!playerExpanded)return;

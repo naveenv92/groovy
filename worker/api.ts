@@ -1,5 +1,5 @@
 import { readPasswordHashes, verifyPassword } from './password.mjs';
-import { digest, fail, fetchLimited, HttpError, parseFeed, publicUrl } from './lib';
+import { digest, fail, fetchLimited, fetchLimitedBytes, rasterImageType, HttpError, parseFeed, publicUrl } from './lib';
 export interface ApiEnv { DB: D1Database; USER_PASSWORD_HASHES?: string; PODCAST_INDEX_KEY?: string; PODCAST_INDEX_SECRET?: string }
 const json = (data: unknown, status = 200, headers = {}) => Response.json(data, { status, headers: { 'Cache-Control': 'no-store', ...headers } });
 const cookie = (token: string, age: number, secure: boolean) => `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${age}${secure ? '; Secure' : ''}`;
@@ -60,6 +60,12 @@ export async function handleApi(request: Request, env: ApiEnv, ctx: Pick<Executi
     if (path === 'logout' && method === 'POST') {
       await db.prepare('DELETE FROM sessions WHERE token_hash=?').bind(tokenHash).run();
       return json({ok:true},200,{'Set-Cookie':cookie('',0,url.protocol==='https:')});
+    }
+    if (path === 'artwork' && method === 'GET') {
+      const bytes = await fetchLimitedBytes(publicUrl(url.searchParams.get('url') || ''),{'Accept':'image/jpeg,image/png,image/webp,image/gif','User-Agent':'Groovy/1.0'});
+      const type = rasterImageType(bytes);
+      if (!type) fail(415,'Artwork must be a JPEG, PNG, WebP, or GIF image.');
+      return new Response(bytes,{headers:{'Content-Type':type!,'X-Content-Type-Options':'nosniff','Cache-Control':'private,max-age=86400'}});
     }
     if (path === 'me' && method === 'GET') {
       const results = await db.batch([

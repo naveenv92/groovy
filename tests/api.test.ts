@@ -180,3 +180,30 @@ test('feed requests accept more than 4 MB and enforce the 12 MB feed limit',asyn
     assert.equal(rejected.status,413);assert.match((await rejected.json() as any).error,/12 MB maximum/);
   }finally{sqlite.close();globalThis.fetch=originalFetch;if(originalCaches)Object.defineProperty(globalThis,'caches',originalCaches);else delete (globalThis as any).caches;}
 });
+
+test('artwork proxy requires login, limits downloads, and serves only public raster images',async()=>{
+  const originalFetch=globalThis.fetch;
+  let mode='jpeg';
+  globalThis.fetch=async(input)=>{
+    if(String(input).includes('cloudflare-dns.com'))return Response.json({Answer:[{type:1,data:mode==='private'?'127.0.0.1':'1.1.1.1'}]});
+    if(mode==='redirect')return new Response(null,{status:302,headers:{location:'http://127.0.0.1/image'}});
+    if(mode==='oversized')return new Response(new Uint8Array(4_000_001));
+    if(mode==='svg')return new Response('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
+    return new Response(new Uint8Array([255,216,255,224]));
+  };
+  const {request,sqlite}=await setup();
+  const path='artwork?url='+encodeURIComponent('https://cdn.example.org/art.jpg');
+  try{
+    assert.equal((await request(path)).status,401);
+    const login=await request('login','POST',{password:'alice'.repeat(10)}),auth=login.headers.get('set-cookie')!.split(';')[0];
+    const response=await request(path,'GET',undefined,auth);
+    assert.equal(response.status,200);assert.equal(response.headers.get('Content-Type'),'image/jpeg');
+    assert.equal(response.headers.get('X-Content-Type-Options'),'nosniff');
+    assert.equal(response.headers.get('Cache-Control'),'private,max-age=86400');
+    assert.deepEqual(new Uint8Array(await response.arrayBuffer()),new Uint8Array([255,216,255,224]));
+    assert.equal((await request('artwork?url='+encodeURIComponent('http://127.0.0.1/art'),'GET',undefined,auth)).status,400);
+    for(const [scenario,status] of [['private',400],['redirect',400],['oversized',413],['svg',415]] as const){
+      mode=scenario;assert.equal((await request(path,'GET',undefined,auth)).status,status);
+    }
+  }finally{sqlite.close();globalThis.fetch=originalFetch;}
+});

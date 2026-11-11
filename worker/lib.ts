@@ -79,7 +79,7 @@ async function checkDns(url: string, signal: AbortSignal) {
   const addresses = responses.flat();
   if (!addresses.length || !addresses.every(publicAddress)) fail(400, 'The feed must resolve to a public internet address.');
 }
-export async function fetchLimited(input: string, headers: Record<string, string> = {}, maxBytes = 4_000_000) {
+export async function fetchLimitedBytes(input: string, headers: Record<string, string> = {}, maxBytes = 4_000_000) {
   let url = publicUrl(input);
   const signal = AbortSignal.timeout(12_000);
   for (let redirects = 0; redirects <= 4; redirects++) {
@@ -98,7 +98,20 @@ export async function fetchLimited(input: string, headers: Record<string, string
     finally { await reader!.cancel(); }
     const output = new Uint8Array(size); let offset = 0;
     for (const chunk of chunks) { output.set(chunk, offset); offset += chunk.length; }
-    return new TextDecoder().decode(output);
+    return output;
   }
   return fail(502, 'Too many publisher redirects.');
+}
+
+export async function fetchLimited(input: string, headers: Record<string, string> = {}, maxBytes = 4_000_000) {
+  return new TextDecoder().decode(await fetchLimitedBytes(input, headers, maxBytes));
+}
+
+export function rasterImageType(bytes: Uint8Array) {
+  if (bytes[0]===0xff && bytes[1]===0xd8 && bytes[2]===0xff) return 'image/jpeg';
+  if ([137,80,78,71,13,10,26,10].every((value,index)=>bytes[index]===value)) return 'image/png';
+  const header = new TextDecoder().decode(bytes.subarray(0,12));
+  if (header.startsWith('GIF87a') || header.startsWith('GIF89a')) return 'image/gif';
+  if (header.startsWith('RIFF') && header.slice(8)==='WEBP') return 'image/webp';
+  return null;
 }
