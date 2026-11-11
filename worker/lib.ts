@@ -94,7 +94,7 @@ export async function fetchLimited(input: string, headers: Record<string, string
     if (!response.ok) { await response.body?.cancel(); fail(502, `The publisher returned HTTP ${response.status}. Try again later.`); }
     const reader = response.body?.getReader(); if (!reader) fail(502, 'Empty publisher response.');
     const chunks: Uint8Array[] = []; let size = 0;
-    try { for (;;) { const { done, value } = await reader!.read(); if (done) break; size += value.byteLength; if (size > maxBytes) fail(413, 'This feed is too large (4 MB maximum).'); chunks.push(value); } }
+    try { for (;;) { const { done, value } = await reader!.read(); if (done) break; size += value.byteLength; if (size > maxBytes) fail(413, `This feed is too large (${maxBytes/1_000_000} MB maximum).`); chunks.push(value); } }
     finally { await reader!.cancel(); }
     const output = new Uint8Array(size); let offset = 0;
     for (const chunk of chunks) { output.set(chunk, offset); offset += chunk.length; }

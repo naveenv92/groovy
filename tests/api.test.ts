@@ -160,3 +160,23 @@ test('podcast speed overrides persist per account without replacing the default 
     assert.deepEqual(me.podcastSpeeds,{});assert.equal(me.settings.speed,1.25);
   }finally{sqlite.close();}
 });
+
+test('feed requests accept more than 4 MB and enforce the 12 MB feed limit',async()=>{
+  const originalFetch=globalThis.fetch,originalCaches=Object.getOwnPropertyDescriptor(globalThis,'caches');
+  Object.defineProperty(globalThis,'caches',{configurable:true,value:{default:{match:async()=>undefined,put:async()=>{}}}});
+  let oversized=false;
+  globalThis.fetch=async(input)=>{
+    if(String(input).includes('cloudflare-dns.com'))return Response.json({Answer:[{type:1,data:'1.1.1.1'}]});
+    return new Response(oversized?new Uint8Array(12_000_001):`<rss><channel><title>Large podcast</title><!--${'x'.repeat(4_000_000)}--><item><title>Episode</title><enclosure url="https://example.org/audio.mp3" type="audio/mpeg"/></item></channel></rss>`);
+  };
+  const {request,sqlite}=await setup();
+  try{
+    const login=await request('login','POST',{password:'alice'.repeat(10)}),auth=login.headers.get('set-cookie')!.split(';')[0];
+    const path='feed?url='+encodeURIComponent('https://feeds.example.org/show');
+    const response=await request(path,'GET',undefined,auth);
+    assert.equal(response.status,200);assert.equal((await response.json() as any).episodes.length,1);
+    oversized=true;
+    const rejected=await request(path,'GET',undefined,auth);
+    assert.equal(rejected.status,413);assert.match((await rejected.json() as any).error,/12 MB maximum/);
+  }finally{sqlite.close();globalThis.fetch=originalFetch;if(originalCaches)Object.defineProperty(globalThis,'caches',originalCaches);else delete (globalThis as any).caches;}
+});
