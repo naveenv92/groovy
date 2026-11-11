@@ -147,3 +147,6 @@ button.now-playing{padding:0;text-align:left;border-radius:8px}
 .episode.completed h3,.episode.completed p,.episode.completed .episode-meta{color:#706e66}
 
 .episode{padding-left:16px;padding-right:16px}
+
+button.feed-description{padding:0;text-align:left;width:100%;line-height:1.65}
+.feed-description.expanded{display:block;-webkit-line-clamp:unset;overflow:visible}
