@@ -45,3 +45,10 @@ test('effective playback speed uses the current podcast override and falls back 
   assert.equal(playbackSpeed(account,'https://feeds.example.org/a'),.75);
   assert.equal(playbackSpeed(null),1);
 });
+
+test('resume ignores zero progress and invalid positions without loading their feeds',async()=>{
+  const zero={id:JSON.stringify(['https://example.org/rss','zero']),position:0,playback:null};
+  assert.equal(await findResume([zero,{...zero,playback:item},{...zero,position:.5},{...zero,position:-1},{...zero,position:NaN}],async()=>{throw new Error('Must not load zero-progress feeds');}),null);
+  const saved=await findResume([{...zero,playback:item},{id:'started',position:12,playback:item}],async()=>{throw new Error();});
+  assert.equal(saved?.position,12);
+});

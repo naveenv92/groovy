@@ -108,16 +108,25 @@ function App() {
       const position=completed?episode.duration||accountRef.current?.progress[episode.id]||0:0;
       await api('progress','PUT',{id:episode.id,position,completed,playback:playbackSnapshot({episode,podcast},episode.duration)});
       updateEpisodeProgress(episode.id,position,completed,{episode,podcast});
-      if(!completed&&currentRef.current?.episode.id===episode.id){restore.current=0;seek(0);}
+      if(currentRef.current?.episode.id===episode.id)dismissPlayer();
     });
+  }
+  function dismissPlayer() {
+    currentRef.current=null;setCurrent(null);setPlaying(false);setPlayerExpanded(false);setBuffering(false);
+    restore.current=0;setPosition(0);setDuration(0);
+    if(settingsOpen==='speed')setSettingsOpen(false);
+    const element=audio.current;
+    if(element){element.pause();element.removeAttribute('src');element.load();}
+    if('mediaSession' in navigator){navigator.mediaSession.metadata=null;navigator.mediaSession.playbackState='none';}
   }
   async function saveProgress(keepalive=false) {
     const item=currentRef.current,element=audio.current;
     if (!item||!element||element.readyState<1||element.currentSrc!==item.episode.audio||!Number.isFinite(element.currentTime))return;
     const p=element.currentTime;
     const completed=!!accountRef.current?.completed?.[item.episode.id]||element.ended||(Number.isFinite(element.duration)&&element.duration>0&&p>=element.duration);
+    const snapshot=playbackSnapshot(item,element.duration);
     updateEpisodeProgress(item.episode.id,p,completed,item);
-    try{await api('progress','PUT',{id:item.episode.id,position:p,playback:playbackSnapshot(item,element.duration),completed},keepalive);}catch{setError('Progress could not sync. Check your connection; playback can continue.');}
+    try{await api('progress','PUT',{id:item.episode.id,position:p,playback:snapshot,completed},keepalive);}catch{setError('Progress could not sync. Check your connection; playback can continue.');}
   }
   useEffect(()=>{
     const timer=window.setInterval(()=>{if(audio.current&&!audio.current.paused)void saveProgress();},10000);
@@ -133,7 +142,7 @@ function App() {
     restore.current=accountRef.current?.completed?.[episode.id]?0:accountRef.current?.progress[episode.id] || 0;
     currentRef.current={episode,podcast};setCurrent({episode,podcast});setPosition(restore.current);setDuration(episode.duration);setBuffering(true);
     element.src=episode.audio;element.playbackRate=playbackSpeed(accountRef.current,podcast.url);element.preservesPitch=true;
-    try{await element.play();}catch{setBuffering(false);setError('Could not play this episode. Tap play to retry, or try another episode.');}
+    try{await element.play();}catch{if(currentRef.current?.episode.id===episode.id&&element.paused&&element.currentTime===0)dismissPlayer();setBuffering(false);setError('Could not play this episode. Tap play to retry, or try another episode.');}
   }
   function openEpisode(episode:Episode) {
     episodeListScroll.current=window.scrollY;
@@ -213,7 +222,7 @@ function App() {
     const metadata={title:episode.title,artist:podcast.title,album:podcast.title};
     navigator.mediaSession.metadata=new MediaMetadata({...metadata,artwork:artwork?[{src:artwork}]:[]});
     let cancelled=false;
-    void mediaArtwork(artwork).then(images=>{if(!cancelled)navigator.mediaSession.metadata=new MediaMetadata({...metadata,artwork:images});});
+    void mediaArtwork(artwork).then(images=>{if(!cancelled&&currentRef.current?.episode.id===episode.id)navigator.mediaSession.metadata=new MediaMetadata({...metadata,artwork:images});});
     const handlers: [MediaSessionAction,MediaSessionActionHandler][]=[['play',()=>{void audio.current?.play().catch(()=>setError('Tap play to resume.'));}],['pause',()=>audio.current?.pause()],['seekbackward',d=>d.seekOffset?seek((audio.current?.currentTime||0)-d.seekOffset):skip(-1)],['seekforward',d=>d.seekOffset?seek((audio.current?.currentTime||0)+d.seekOffset):skip(1)],['seekto',d=>{if(d.seekTime!==undefined)seek(d.seekTime);}]];
     for(const [name,handler]of handlers){try{navigator.mediaSession.setActionHandler(name,handler);}catch{/* Unsupported action on this browser. */}}
     return()=>{cancelled=true;for(const [name]of handlers){try{navigator.mediaSession.setActionHandler(name,null);}catch{}}};
@@ -236,7 +245,7 @@ function App() {
     document.addEventListener('keydown',key);return()=>{document.removeEventListener('keydown',key);document.body.style.overflow=overflow;(playerExpanded&&!settingsOpen?document.querySelector<HTMLButtonElement>('button.now-playing'):previous)?.focus();};
   },[settingsOpen,playerExpanded]);
   const changeView=(next:'library'|'discover'|'stats')=>{if(next==='stats')setVisibleHistory(50);feedRequest.current++;setBusy(false);setView(next);setFeed(null);setSelectedEpisode(null);setError('');};
-  const player=<audio ref={audio} preload="metadata" onLoadedMetadata={()=>{const a=audio.current!;setDuration(Number.isFinite(a.duration)?a.duration:currentRef.current?.episode.duration||0);if(restore.current){const p=restore.current;restore.current=0;seek(p);}a.playbackRate=playbackSpeed(accountRef.current,currentRef.current?.podcast.url);updatePosition();void saveProgress();}} onTimeUpdate={()=>{setPosition(audio.current?.currentTime||0);if(Date.now()-lastSave.current>1000){updatePosition();lastSave.current=Date.now();}}} onPlay={()=>{const id=currentRef.current?.episode.id;if(id&&accountRef.current?.completed?.[id]){updateEpisodeProgress(id,0,false);seek(0);}setPlaying(true);if('mediaSession'in navigator)navigator.mediaSession.playbackState='playing';void saveProgress();}} onPause={()=>{setPlaying(false);if('mediaSession'in navigator)navigator.mediaSession.playbackState='paused';void saveProgress();}} onWaiting={()=>setBuffering(true)} onPlaying={()=>setBuffering(false)} onCanPlay={()=>setBuffering(false)} onEnded={()=>{setPlaying(false);void saveProgress();}} onError={()=>{setBuffering(false);setPlaying(false);setError('This audio could not load. Retry playback or choose another episode.');}}/>;
+  const player=<audio ref={audio} preload="metadata" onLoadedMetadata={()=>{const a=audio.current!;setDuration(Number.isFinite(a.duration)?a.duration:currentRef.current?.episode.duration||0);if(restore.current){const p=restore.current;restore.current=0;seek(p);}a.playbackRate=playbackSpeed(accountRef.current,currentRef.current?.podcast.url);updatePosition();void saveProgress();}} onTimeUpdate={()=>{setPosition(audio.current?.currentTime||0);if(Date.now()-lastSave.current>1000){updatePosition();lastSave.current=Date.now();}}} onPlay={()=>{const id=currentRef.current?.episode.id;if(!id)return;if(accountRef.current?.completed?.[id]){updateEpisodeProgress(id,0,false);seek(0);}setPlaying(true);if('mediaSession'in navigator)navigator.mediaSession.playbackState='playing';void saveProgress();}} onPause={()=>{setPlaying(false);if('mediaSession'in navigator)navigator.mediaSession.playbackState=currentRef.current?'paused':'none';void saveProgress();}} onWaiting={()=>setBuffering(true)} onPlaying={()=>setBuffering(false)} onCanPlay={()=>setBuffering(false)} onEnded={()=>{void saveProgress();dismissPlayer();}} onError={()=>{setBuffering(false);setPlaying(false);setError('This audio could not load. Retry playback or choose another episode.');}}/>;
   const podcastOverride=current?account?.podcastSpeeds?.[current.podcast.url]:undefined;
   const currentSpeed=playbackSpeed(account,current?.podcast.url);
   const matchingEpisodes=useMemo(()=>sortEpisodes(filterEpisodes(feed?.episodes||[],appliedEpisodeQuery),oldestFirst),[feed,appliedEpisodeQuery,oldestFirst]);

@@ -13,6 +13,7 @@ import type { Feed, Playback, ResumeCandidate } from './types';
 
 export async function findResume(candidates: ResumeCandidate[], loadFeed: (url: string) => Promise<Feed>) {
   for (const saved of candidates) {
+    if (!Number.isFinite(saved.position) || saved.position < 1) continue;
     if (saved.playback) {
       if (saved.playback.episode.duration > 0 && saved.position >= saved.playback.episode.duration) continue;
       return { ...saved.playback, position: saved.position };
