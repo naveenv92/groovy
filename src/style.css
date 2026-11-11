@@ -180,4 +180,16 @@ button.now-playing:active:not(:disabled){transform:none}
 .listening-stats>div{padding:28px;border:1px solid var(--line);border-radius:16px;background:#fff0d380;box-shadow:0 2px 0 #c9a77355}
 .listening-stats dt{font-size:14px;color:var(--muted);margin-bottom:12px}
 .listening-stats dd{margin:0;font-family:'Fraunces',Georgia,serif;font-size:clamp(24px,3vw,34px);font-weight:800;line-height:1.4}
-@media(max-width:760px){nav{gap:4px}nav button{flex:1;justify-content:center;padding:12px 4px;font-size:12px;gap:5px}nav button svg{width:18px;height:18px;flex-shrink:0}nav button span{margin-left:2px;font-size:10px}.listening-stats>div{padding:22px}}
+@media(max-width:760px){nav{gap:4px}nav button{flex:1;justify-content:center;padding:12px 4px;font-size:12px;gap:5px;white-space:nowrap}nav button svg{width:18px;height:18px;flex-shrink:0}nav button span{margin-left:2px;font-size:10px}.listening-stats>div{padding:22px}}
+
+.library-view-toggle{display:flex;gap:2px;padding:3px;border:1px solid var(--line);border-radius:12px;background:#fff0d3}
+.library-view-toggle button{display:grid;place-items:center;width:40px;height:38px;border-radius:8px;color:var(--muted);-webkit-tap-highlight-color:transparent}
+.library-view-toggle button[aria-pressed="true"]{background:var(--gold);color:var(--green);box-shadow:0 1px 2px #785b3830}
+.podcast-card-details{min-width:0}
+.library-list{display:grid;grid-template-columns:minmax(0,1fr)}
+.library-list .podcast-card{display:flex;align-items:center;gap:18px;padding:18px 0;border-bottom:1px solid var(--line)}
+.library-list .podcast-card .art{width:64px;height:64px;flex-shrink:0;border-radius:10px}
+.library-list .podcast-card h3{margin:0 0 6px;font-size:18px;white-space:normal;overflow-wrap:anywhere}
+.library-list .podcast-card p{font-size:13px}
+@media(max-width:760px){.library-list .podcast-card{gap:14px;padding:16px 0}.library-list .podcast-card .art{width:56px;height:56px}.library-list .podcast-card h3{font-size:16px}.library-list .podcast-card p{font-size:12px}}
+.library-list .podcast-card:last-child{border-bottom:0}
