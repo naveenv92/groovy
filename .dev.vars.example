@@ -1,0 +1,2 @@
+# Replace {} with the complete user JSON from `npm run user -- <account-id>`.
+USER_PASSWORD_HASHES='{}'

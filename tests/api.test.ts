@@ -4,12 +4,14 @@ import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { onRequest } from '../functions/api/[[path]]';
 import { digest } from '../functions/lib';
+import { hashPassword } from '../functions/password.mjs';
+const fixtureHashes = {alice:await hashPassword('alice'.repeat(10)),bob:await hashPassword('bob'.repeat(10))};
 function database() {
   const sqlite=new DatabaseSync(':memory:');sqlite.exec(readFileSync('migrations/0001_initial.sql','utf8'));sqlite.exec(readFileSync('migrations/0002_resume_playback.sql','utf8'));
   const wrap=(sql:string,values:unknown[]=[])=>({bind:(...v:unknown[])=>wrap(sql,v),first:async()=>sqlite.prepare(sql).get(...values as any[])||null,run:async()=>sqlite.prepare(sql).run(...values as any[]),all:async()=>({results:sqlite.prepare(sql).all(...values as any[])})});
   return {sqlite,db:{prepare:(sql:string)=>wrap(sql),batch:async(statements:any[])=>Promise.all(statements.map(s=>s.all()))}};
 }
-async function setup(){const {sqlite,db}=database();for(const id of ['alice','bob'])sqlite.prepare('INSERT INTO users(id,password_hash) VALUES(?,?)').run(id,await digest(id.repeat(10)));return {sqlite,request:async(path:string,method='GET',data?:unknown,cookie='',origin='https://groovy.test')=>await onRequest({request:new Request(`https://groovy.test/api/${path}`,{method,headers:{'Origin':origin,'Content-Type':'application/json','Cookie':cookie},body:data?JSON.stringify(data):undefined}),env:{DB:db},waitUntil:()=>{}} as any) as Response};}
+async function setup(){const {sqlite,db}=database();const credentials={...fixtureHashes};for(const id of ['alice','bob'])sqlite.prepare('INSERT INTO users(id,password_hash) VALUES(?,?)').run(id,await digest(id.repeat(10)));return {sqlite,credentials,request:async(path:string,method='GET',data?:unknown,cookie='',origin='https://groovy.test')=>await onRequest({request:new Request(`https://groovy.test/api/${path}`,{method,headers:{'Origin':origin,'Content-Type':'application/json','Cookie':cookie},body:data?JSON.stringify(data):undefined}),env:{DB:db,USER_PASSWORD_HASHES:JSON.stringify(credentials)},waitUntil:()=>{}} as any) as Response};}
 test('password-only login, session cookies, progress isolation, settings and logout',async()=>{
   const {request,sqlite}=await setup();try{
     assert.equal((await request('me')).status,401);
@@ -35,14 +37,15 @@ test('expired sessions fail and repeated failed logins are rate limited',async()
     assert.equal((await request('login','POST',{password:'wrong'.repeat(10)})).status,429);
   }finally{sqlite.close();}
 });
-test('manual account rotation keeps subscriptions and revokes existing sessions',async()=>{
-  const {request,sqlite}=await setup();try{
+test('secret rotation preserves libraries and revokes old sessions, including after a new login',async()=>{
+  const {request,sqlite,credentials}=await setup();try{
     const login=await request('login','POST',{password:'alice'.repeat(10)});const auth=login.headers.get('set-cookie')!.split(';')[0];
     sqlite.prepare('INSERT INTO subscriptions VALUES(?,?,?,?,?)').run('alice','https://feeds.example.org/rss','Show','Host','');
-    sqlite.prepare('UPDATE users SET password_hash=? WHERE id=?').run(await digest('new'.repeat(10)),'alice');sqlite.prepare('DELETE FROM sessions WHERE user_id=?').run('alice');
+    credentials.alice=await hashPassword('new'.repeat(10));
     assert.equal((await request('me','GET',undefined,auth)).status,401);
     assert.equal((await request('login','POST',{password:'alice'.repeat(10)})).status,401);
     assert.equal((await request('login','POST',{password:'new'.repeat(10)})).status,200);
+    assert.equal((await request('me','GET',undefined,auth)).status,401);
     assert.equal(sqlite.prepare('SELECT count(*) AS n FROM subscriptions WHERE user_id=?').get('alice')!.n,1);
   }finally{sqlite.close();}
 });
@@ -93,5 +96,25 @@ test('resume history excludes completed episodes and stays isolated per account'
     assert.deepEqual((await (await request('me','GET',undefined,bobAuth)).json() as any).resume,[]);
     await request('progress','PUT',{id:'two',position:5,playback:second,completed:false},auth);
     me=await (await request('me','GET',undefined,auth)).json() as any;assert.equal(me.resume[0].id,'two');
+  }finally{sqlite.close();}
+});
+test('short chosen passwords provision accounts on first login and removed users lose access',async()=>{
+  const {request,sqlite,credentials}=await setup();
+  try{
+    sqlite.prepare('DELETE FROM users WHERE id=?').run('alice');
+    credentials.alice=await hashPassword('short');
+    const login=await request('login','POST',{password:'short'});assert.equal(login.status,200);
+    const auth=login.headers.get('set-cookie')!.split(';')[0];assert.equal((await request('me','GET',undefined,auth)).status,200);
+    delete (credentials as Partial<typeof credentials>).alice;
+    assert.equal((await request('me','GET',undefined,auth)).status,401);
+    assert.equal((await request('login','POST',{password:'short'})).status,401);
+  }finally{sqlite.close();}
+});
+test('duplicate passwords never select an arbitrary account',async()=>{
+  const {request,sqlite,credentials}=await setup();
+  try{
+    credentials.bob=await hashPassword('alice'.repeat(10));
+    assert.equal((await request('login','POST',{password:'alice'.repeat(10)})).status,401);
+    assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM sessions').get()!.n,0);
   }finally{sqlite.close();}
 });

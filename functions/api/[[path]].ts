@@ -1,5 +1,6 @@
+import { readPasswordHashes, verifyPassword } from '../password.mjs';
 import { digest, fail, fetchLimited, HttpError, parseFeed, publicUrl } from '../lib';
-interface Env { DB: D1Database }
+interface Env { DB: D1Database; USER_PASSWORD_HASHES?: string }
 const json = (data: unknown, status = 200, headers = {}) => Response.json(data, { status, headers: { 'Cache-Control': 'no-store', ...headers } });
 const cookie = (token: string, age: number, secure: boolean) => `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${age}${secure ? '; Secure' : ''}`;
 export const onRequest: PagesFunction<Env> = async ({ request, env, waitUntil }) => {
@@ -20,17 +21,30 @@ export const onRequest: PagesFunction<Env> = async ({ request, env, waitUntil })
       try { const parsed = JSON.parse(raw); if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) fail(400, 'Expected an object.'); return parsed; } catch { return fail(400, 'Invalid JSON.'); }
     };
     const now = Math.floor(Date.now() / 1000);
+    function passwordHashes() {
+      try { return readPasswordHashes(env.USER_PASSWORD_HASHES); }
+      catch (error) { return fail(503,(error as Error).message); }
+    }
     if (path === 'login' && method === 'POST') {
       const ipHash = await digest(request.headers.get('CF-Connecting-IP') || 'local');
       const rate = await db.prepare('INSERT INTO login_attempts(ip_hash,attempts,reset_at) VALUES(?,1,?) ON CONFLICT(ip_hash) DO UPDATE SET attempts=CASE WHEN reset_at<=? THEN 1 ELSE attempts+1 END, reset_at=CASE WHEN reset_at<=? THEN ? ELSE reset_at END RETURNING attempts').bind(ipHash, now+900, now, now, now+900).first<{attempts:number}>();
       if (rate!.attempts > 10) fail(429, 'Too many attempts. Try again in 15 minutes.');
       const { password } = await body();
-      if (typeof password !== 'string' || password.length < 20 || password.length > 256) fail(401, 'Password not recognized.');
-      const user = await db.prepare('SELECT id FROM users WHERE password_hash=?').bind(await digest(password)).first<{id:string}>();
-      if (!user) fail(401, 'Password not recognized.');
+      if (typeof password !== 'string' || password.length < 1 || password.length > 256) fail(401, 'Password not recognized.');
+      const hashes = passwordHashes();
+      let user: string | null = null;
+      let matches = 0;
+      // shortcut: password-only login checks every account; add usernames when the user list grows.
+      for (const [id,hash] of Object.entries(hashes)) {
+        if (await verifyPassword(password,hash)) { user=id; matches++; }
+      }
+      if (matches !== 1 || !user) fail(401,'Password not recognized.');
+      const credential = await digest(hashes[user!]);
       const token = crypto.randomUUID() + crypto.randomUUID();
       await db.batch([
-        db.prepare('INSERT INTO sessions VALUES(?,?,?)').bind(await digest(token), user!.id, now+30*86400),
+        db.prepare('DELETE FROM sessions WHERE user_id=? AND EXISTS(SELECT 1 FROM users WHERE id=? AND password_hash<>?)').bind(user,user,credential),
+        db.prepare('INSERT INTO users(id,password_hash) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET password_hash=excluded.password_hash').bind(user,credential),
+        db.prepare('INSERT INTO sessions VALUES(?,?,?)').bind(await digest(token), user, now+30*86400),
         db.prepare('DELETE FROM sessions WHERE expires<=?').bind(now),
         db.prepare('DELETE FROM login_attempts WHERE reset_at<=? OR ip_hash=?').bind(now,ipHash),
       ]);
@@ -38,9 +52,11 @@ export const onRequest: PagesFunction<Env> = async ({ request, env, waitUntil })
     }
     const token = request.headers.get('cookie')?.match(/(?:^|;\s*)session=([^;]+)/)?.[1] || '';
     const tokenHash = await digest(token);
-    const session = await db.prepare('SELECT user_id FROM sessions WHERE token_hash=? AND expires>?').bind(tokenHash,now).first<{user_id:string}>();
+    const session = await db.prepare('SELECT sessions.user_id,users.password_hash FROM sessions JOIN users ON users.id=sessions.user_id WHERE token_hash=? AND expires>?').bind(tokenHash,now).first<{user_id:string;password_hash:string}>();
     if (!session) fail(401, 'Please sign in.');
     const user = session!.user_id;
+    const configuredHash = passwordHashes()[user];
+    if (!configuredHash || await digest(configuredHash) !== session!.password_hash) fail(401,'Please sign in.');
     if (path === 'logout' && method === 'POST') {
       await db.prepare('DELETE FROM sessions WHERE token_hash=?').bind(tokenHash).run();
       return json({ok:true},200,{'Set-Cookie':cookie('',0,url.protocol==='https:')});
