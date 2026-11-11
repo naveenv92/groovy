@@ -13,7 +13,7 @@ const folder = mkdtempSync(join(tmpdir(),'groovy-user-'));
 try {
   const file = join(folder,'user.sql');
   writeFileSync(file,`INSERT INTO users(id,password_hash) VALUES('${id}','${hash}') ON CONFLICT(id) DO UPDATE SET password_hash=excluded.password_hash;\nDELETE FROM sessions WHERE user_id='${id}';`,{mode:0o600});
-  const result = spawnSync('npx',['wrangler','d1','execute','frequency',flags.includes('--remote')?'--remote':'--local','--file',file],{stdio:'inherit'});
+  const result = spawnSync('npx',['wrangler','d1','execute','groovy',flags.includes('--remote')?'--remote':'--local','--file',file],{stdio:'inherit'});
   if (result.status !== 0) process.exitCode=1;
   else console.log(`\nAccount: ${id}\nPassword (store securely; shown only now): ${password}`);
 } finally { rmSync(folder,{recursive:true,force:true}); }

@@ -20,12 +20,12 @@ For frontend development, keep `npm run preview` running on port 8788 and run `n
 
 ## Deploy to your Cloudflare account
 
-1. Run `npx wrangler login` and `npx wrangler d1 create frequency`. Replace the placeholder `database_id` in `wrangler.jsonc` with the returned ID.
-2. Run `npx wrangler d1 migrations apply frequency --remote`.
-3. Run `npm run build`, then `npx wrangler pages project create frequency-podcasts --production-branch main` and `npx wrangler pages deploy dist --project-name frequency-podcasts`.
+1. Run `npx wrangler login` and `npx wrangler d1 create groovy`. Replace the placeholder `database_id` in `wrangler.jsonc` with the returned ID.
+2. Run `npx wrangler d1 migrations apply groovy --remote`.
+3. Run `npm run build`, then `npx wrangler pages project create groovy --production-branch main` and `npx wrangler pages deploy dist --project-name groovy`.
 4. Run `npm run user -- my-account --remote` to provision each listener, then share their generated password privately.
 
-The app is named Groovy; existing Cloudflare resource names (`frequency-podcasts` and `frequency`) are retained to preserve deployment and database identity. The D1 binding is named `DB`. For Git-based Pages builds, use `npm run build`, output directory `dist`, and the repository root. Pages discovers the `functions` directory automatically. Never upload `.dev.vars` or account passwords. `npm run deploy` builds and deploys to Pages; add `--project-name frequency-podcasts` to Wrangler if prompted to select a project.
+The Cloudflare Pages project is named `groovy`. The D1 database is named `groovy`. The D1 binding is named `DB`. For Git-based Pages builds, use `npm run build`, output directory `dist`, and the repository root. Pages discovers the `functions` directory automatically. Never upload `.dev.vars` or account passwords. `npm run deploy` builds and deploys to Pages; add `--project-name groovy` to Wrangler if prompted to select a project.
 
 ## Behavior
 
@@ -45,7 +45,7 @@ npm run build
 npx wrangler pages functions build --outdir /tmp/groovy-functions
 ```
 
-After pulling schema changes, run `npm run db:migrate` locally and `npx wrangler d1 migrations apply frequency --remote` before deploying.
+After pulling schema changes, run `npm run db:migrate` locally and `npx wrangler d1 migrations apply groovy --remote` before deploying.
 
 Tests cover RSS parsing and metadata fallbacks, malformed XML, URL/DNS restrictions, fetch limits, login/session security, account isolation, settings validation, progress persistence, and credential rotation using an in-memory SQLite database.
 

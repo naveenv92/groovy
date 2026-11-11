@@ -7,7 +7,7 @@
     "build": "tsc --noEmit && vite build",
     "test": "node --import tsx --test tests/*.test.ts",
     "preview": "wrangler pages dev dist",
-    "db:migrate": "wrangler d1 migrations apply frequency --local",
+    "db:migrate": "wrangler d1 migrations apply groovy --local",
     "user": "node scripts/user.mjs",
     "deploy": "npm run build && wrangler pages deploy dist"
   },
