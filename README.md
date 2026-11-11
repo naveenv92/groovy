@@ -1,6 +1,6 @@
 # Groovy
 
-A mobile-first RSS podcast player for iPhone Safari and Android Chrome. React + TypeScript on Cloudflare Pages, Pages Functions for the API, and D1 for accounts, subscriptions, progress, and preferences.
+A mobile-first RSS podcast player for iPhone Safari and Android Chrome. React + TypeScript with Cloudflare Workers Static Assets, a Worker API, and D1 for accounts, subscriptions, progress, and preferences.
 
 ## Local setup
 
@@ -27,22 +27,28 @@ npm run preview
 
 Open the URL Wrangler prints and enter the password you chose. The account ID is an administrator identifier; listeners enter only their password. No Cloudflare login or database write happens during hash generation.
 
-For frontend development, keep `npm run preview` running on port 8788 and run `npm run dev` in another terminal. Vite proxies `/api` to Wrangler; rebuild when changing Functions. `.dev.vars` is ignored by Git. Manual RSS entry works without directory credentials; search works without credentials through Apple’s podcast directory.
+For frontend development, keep `npm run preview` running on port 8788 and run `npm run dev` in another terminal. Vite proxies `/api` to Wrangler; Wrangler watches the Worker API files; Vite handles frontend hot reload. `.dev.vars` is ignored by Git. Manual RSS entry works without directory credentials; search works without credentials through Apple’s podcast directory.
 
 ## Deploy to your Cloudflare account
 
-1. Run `npx wrangler login` and `npx wrangler d1 create groovy`. Replace the placeholder `database_id` in `wrangler.jsonc` with the returned ID.
-2. Run `npx wrangler d1 migrations apply groovy --remote`.
-3. Run `npm run build`, then `npx wrangler pages project create groovy --production-branch main` and `npx wrangler pages deploy dist --project-name groovy`.
-4. Run `npm run user -- my-account`, choose a password, and merge the printed entry into the `USER_PASSWORD_HASHES` Pages secret. Set the secret in the Cloudflare dashboard under the project's Settings → Variables and Secrets, or run:
+The Worker and D1 database are both named `groovy`. The existing database ID is retained in `wrangler.jsonc`; this migration does not require a new database or schema migration. The D1 binding stays `DB`.
+
+1. Run `npx wrangler login`. For a fresh installation only, create a database with `npx wrangler d1 create groovy` and put its ID in the existing `DB` binding.
+2. Apply any pending schema migrations: `npx wrangler d1 migrations apply groovy --remote`.
+3. Run `npm run user -- my-account`, choose a password, and merge the printed entry into the complete `USER_PASSWORD_HASHES` object. Keep existing account IDs to retain their libraries. Set the **Worker runtime secret** with:
 
    ```sh
-   npx wrangler pages secret put USER_PASSWORD_HASHES --project-name groovy
+   npx wrangler secret put USER_PASSWORD_HASHES
    ```
 
-   Paste the complete JSON object containing all users. Redeploy after setting or updating the secret. Configure production and preview secrets separately; local `.dev.vars` is not uploaded.
+   Paste the complete JSON object containing all users. A secret previously set on a Pages project is not copied to a Worker. If Wrangler offers to create the `groovy` Worker, accept. For later updates, this command updates the Worker's secret; preserve a copy of the complete map in your password manager because Cloudflare does not return existing secret values.
+4. Run `npm run deploy`. This builds the frontend and runs `wrangler deploy`, uploading the API and assets together. Open the printed `workers.dev` URL and test login, subscriptions, playback, and paused restoration. `.dev.vars` is local-only and is not uploaded.
 
-The Cloudflare Pages project is named `groovy`. The D1 database is named `groovy`. The D1 binding is named `DB`. For Git-based Pages builds, use `npm run build`, output directory `dist`, and the repository root. Pages discovers the `functions` directory automatically. Never upload `.dev.vars` or account passwords. `npm run deploy` builds and deploys to Pages; add `--project-name groovy` to Wrangler if prompted to select a project.
+For Git-based deployment, use **Workers & Pages → Create application → Import a repository**, select `naveenv92/groovy`, and create a Worker named `groovy` (or use the existing Worker). Set production branch `main`, root directory to the repository root, build command `npm run build`, deploy command `npx wrangler deploy`, and build environment variable `NODE_VERSION=22`. Static output is configured as `dist` in Wrangler; there is no Pages output-directory setting. If a non-production branch deployment command is requested, use `npx wrangler versions upload`. Set `USER_PASSWORD_HASHES` under the Worker's runtime Variables and Secrets, not just the build environment. Pushes to `main` then deploy automatically.
+
+`worker/index.ts` routes `/api` and `/api/*` to the API; all other requests use the `ASSETS` binding. The assets configuration serves the SPA for app navigation, while API routes always reach the Worker. The existing `public/_headers`, icons, and web-app manifest are included in the frontend build.
+
+Never upload `.dev.vars` or account passwords. If migrating from an already hosted site, changing its origin requires signing in again; data remains in the same D1 database. A Home Screen shortcut for the old URL must be re-added using the new URL unless you retain the same custom domain.
 
 ## Behavior
 
@@ -63,11 +69,11 @@ The Cloudflare Pages project is named `groovy`. The D1 database is named `groovy
 ```sh
 npm test
 npm run build
-npx wrangler pages functions build --outdir /tmp/groovy-functions --compatibility-flags nodejs_compat
+npx wrangler deploy --dry-run --outdir /tmp/groovy-worker
 ```
 
 After pulling schema changes, run `npm run db:migrate` locally and `npx wrangler d1 migrations apply groovy --remote` before deploying.
 
-Tests cover RSS parsing and metadata fallbacks, malformed XML, URL/DNS restrictions, fetch limits, login/session security, account isolation, settings validation, progress persistence, and secret-based credential rotation using an in-memory SQLite database, plus scrypt and secret validation checks.
+Tests cover Worker API/asset routing, deployment configuration, RSS parsing and metadata fallbacks, malformed XML, URL/DNS restrictions, fetch limits, login/session security, account isolation, settings validation, progress persistence, and secret-based credential rotation using an in-memory SQLite database, plus scrypt and secret validation checks.
 
 Before release, test the actual iPhone, Android phone, and car: login → search or paste RSS → follow → play → change speed → skip → reload → resume. Check natural pitch, screen lock, backgrounding, Bluetooth reconnects, car title/artwork updates between episodes, and car play/pause/seek buttons. Test publisher failures, missing artwork, and slow connections. No physical device or browser automation verification has been performed in the restricted build environment.

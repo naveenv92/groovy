@@ -1,6 +1,6 @@
 import { createInterface } from 'node:readline/promises';
 import { Writable } from 'node:stream';
-import { hashPassword } from '../functions/password.mjs';
+import { hashPassword } from '../worker/password.mjs';
 
 const [id, ...extra] = process.argv.slice(2);
 if (!id || !/^[a-zA-Z0-9_-]{1,64}$/.test(id) || extra.length) {

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { hashPassword, verifyPassword, readPasswordHashes } from '../functions/password.mjs';
+import { hashPassword, verifyPassword, readPasswordHashes } from '../worker/password.mjs';
 
 test('chosen passwords including spaces and Unicode round trip with salted scrypt',async()=>{
   const password='  groovy 🎧  ';

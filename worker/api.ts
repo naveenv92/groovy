@@ -1,9 +1,9 @@
-import { readPasswordHashes, verifyPassword } from '../password.mjs';
-import { digest, fail, fetchLimited, HttpError, parseFeed, publicUrl } from '../lib';
-interface Env { DB: D1Database; USER_PASSWORD_HASHES?: string }
+import { readPasswordHashes, verifyPassword } from './password.mjs';
+import { digest, fail, fetchLimited, HttpError, parseFeed, publicUrl } from './lib';
+export interface ApiEnv { DB: D1Database; USER_PASSWORD_HASHES?: string }
 const json = (data: unknown, status = 200, headers = {}) => Response.json(data, { status, headers: { 'Cache-Control': 'no-store', ...headers } });
 const cookie = (token: string, age: number, secure: boolean) => `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${age}${secure ? '; Secure' : ''}`;
-export const onRequest: PagesFunction<Env> = async ({ request, env, waitUntil }) => {
+export async function handleApi(request: Request, env: ApiEnv, ctx: Pick<ExecutionContext, 'waitUntil'>): Promise<Response> {
   try {
     const url = new URL(request.url), path = url.pathname.slice(5), method = request.method;
     const db = env.DB;
@@ -107,7 +107,7 @@ export const onRequest: PagesFunction<Env> = async ({ request, env, waitUntil })
       const hit = await cache.match(cacheRequest);
       if (hit) return hit.json();
       const value = await loader();
-      waitUntil(cache.put(cacheRequest,new Response(JSON.stringify(value),{headers:{'Content-Type':'application/json','Cache-Control':'public,max-age=900'}})));
+      ctx.waitUntil(cache.put(cacheRequest,new Response(JSON.stringify(value),{headers:{'Content-Type':'application/json','Cache-Control':'public,max-age=900'}})));
       return value;
     }
     async function loadFeed(feedUrl: string) {
@@ -130,4 +130,4 @@ export const onRequest: PagesFunction<Env> = async ({ request, env, waitUntil })
     console.error('API request failed',error instanceof Error ? error.name : 'UnknownError');
     return json({error:'Unable to complete the request. Please try again.'},502);
   }
-};
+}

@@ -19,7 +19,7 @@
   },
   "include": [
     "src",
-    "functions",
+    "worker",
     "vite.config.ts"
   ]
 }

@@ -2,16 +2,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
-import { onRequest } from '../functions/api/[[path]]';
-import { digest } from '../functions/lib';
-import { hashPassword } from '../functions/password.mjs';
+import worker from '../worker/index';
+import { digest } from '../worker/lib';
+import { hashPassword } from '../worker/password.mjs';
 const fixtureHashes = {alice:await hashPassword('alice'.repeat(10)),bob:await hashPassword('bob'.repeat(10))};
 function database() {
   const sqlite=new DatabaseSync(':memory:');sqlite.exec(readFileSync('migrations/0001_initial.sql','utf8'));sqlite.exec(readFileSync('migrations/0002_resume_playback.sql','utf8'));
   const wrap=(sql:string,values:unknown[]=[])=>({bind:(...v:unknown[])=>wrap(sql,v),first:async()=>sqlite.prepare(sql).get(...values as any[])||null,run:async()=>sqlite.prepare(sql).run(...values as any[]),all:async()=>({results:sqlite.prepare(sql).all(...values as any[])})});
   return {sqlite,db:{prepare:(sql:string)=>wrap(sql),batch:async(statements:any[])=>Promise.all(statements.map(s=>s.all()))}};
 }
-async function setup(){const {sqlite,db}=database();const credentials={...fixtureHashes};for(const id of ['alice','bob'])sqlite.prepare('INSERT INTO users(id,password_hash) VALUES(?,?)').run(id,await digest(id.repeat(10)));return {sqlite,credentials,request:async(path:string,method='GET',data?:unknown,cookie='',origin='https://groovy.test')=>await onRequest({request:new Request(`https://groovy.test/api/${path}`,{method,headers:{'Origin':origin,'Content-Type':'application/json','Cookie':cookie},body:data?JSON.stringify(data):undefined}),env:{DB:db,USER_PASSWORD_HASHES:JSON.stringify(credentials)},waitUntil:()=>{}} as any) as Response};}
+async function setup(){const {sqlite,db}=database();const credentials={...fixtureHashes};for(const id of ['alice','bob'])sqlite.prepare('INSERT INTO users(id,password_hash) VALUES(?,?)').run(id,await digest(id.repeat(10)));return {sqlite,credentials,request:async(path:string,method='GET',data?:unknown,cookie='',origin='https://groovy.test')=>await worker.fetch(new Request(`https://groovy.test/api/${path}`,{method,headers:{'Origin':origin,'Content-Type':'application/json','Cookie':cookie},body:data?JSON.stringify(data):undefined}),{DB:db,USER_PASSWORD_HASHES:JSON.stringify(credentials),ASSETS:{fetch:async()=>new Response('Unexpected asset request',{status:500})}},{waitUntil:()=>{}} as any) as Response};}
 test('password-only login, session cookies, progress isolation, settings and logout',async()=>{
   const {request,sqlite}=await setup();try{
     assert.equal((await request('me')).status,401);

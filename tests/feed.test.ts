@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseFeed, publicUrl, seconds, fetchLimited, digest, publicAddress } from '../functions/lib';
+import { parseFeed, publicUrl, seconds, fetchLimited, digest, publicAddress } from '../worker/lib';
 const feed=`<?xml version="1.0"?><rss xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" version="2.0"><channel><title>Good &amp; Curious</title><itunes:author>A host</itunes:author><itunes:image href="https://cdn.example.org/show.jpg"/><description><![CDATA[<p>Welcome</p>]]></description><item><guid isPermaLink="false">one</guid><title>First episode</title><description><![CDATA[<b>Hello</b> world]]></description><enclosure url="https://cdn.example.org/audio.mp3" type="audio/mpeg"/><itunes:duration>1:02:03</itunes:duration></item><item><title>No audio</title></item></channel></rss>`;
 test('parses RSS metadata, namespaced artwork, duration, guid, and safe plain descriptions',()=>{
   const result=parseFeed(feed,'https://feeds.example.org/show.xml');

@@ -1,15 +1,15 @@
 {
   "name": "groovy",
   "version": "1.0.0",
-  "description": "Groovy \u2014 a mobile-first RSS podcast player for Cloudflare Pages and D1",
+  "description": "Groovy \u2014 a mobile-first RSS podcast player for Cloudflare Workers and D1",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "test": "node --import tsx --test tests/*.test.ts",
-    "preview": "wrangler pages dev dist",
+    "preview": "wrangler dev --port 8788",
     "db:migrate": "wrangler d1 migrations apply groovy --local",
     "user": "node scripts/user.mjs",
-    "deploy": "npm run build && wrangler pages deploy dist"
+    "deploy": "npm run build && wrangler deploy"
   },
   "license": "ISC",
   "type": "module",
