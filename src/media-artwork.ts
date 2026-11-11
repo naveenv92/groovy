@@ -1,3 +1,8 @@
+export function mediaArtworkUrl(src: string): string {
+  const source = new URL(src, window.location.href);
+  return source.origin === window.location.origin ? source.href : `/api/artwork?url=${encodeURIComponent(source.href)}`;
+}
+
 export function mediaArtwork(src: string): Promise<MediaImage[]> {
   if (!src) return Promise.resolve([]);
   return new Promise(resolve => {
@@ -28,7 +33,6 @@ export function mediaArtwork(src: string): Promise<MediaImage[]> {
         finish(fallback);
       }
     };
-    const source = new URL(src,window.location.href);
-    image.src = source.origin===window.location.origin ? source.href : `/api/artwork?url=${encodeURIComponent(source.href)}`;
+    image.src = mediaArtworkUrl(src);
   });
 }

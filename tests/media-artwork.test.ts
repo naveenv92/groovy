@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mediaArtwork } from '../src/media-artwork';
+import { mediaArtwork, mediaArtworkUrl } from '../src/media-artwork';
 
 test('media artwork creates a declared square JPEG and preserves original artwork on conversion failure',async()=>{
   const originals=new Map(['Image','document','window'].map(key=>[key,Object.getOwnPropertyDescriptor(globalThis,key)]));
@@ -15,6 +15,8 @@ test('media artwork creates a declared square JPEG and preserves original artwor
   Object.defineProperty(globalThis,'document',{configurable:true,value:{createElement:(tag:string)=>{assert.equal(tag,'canvas');return canvas;}}});
   Object.defineProperty(globalThis,'window',{configurable:true,value:{setTimeout,location:{href:'https://groovy.test/',origin:'https://groovy.test'}}});
   try{
+    assert.equal(mediaArtworkUrl('https://example.org/art.png'),'/api/artwork?url=https%3A%2F%2Fexample.org%2Fart.png');
+    assert.equal(mediaArtworkUrl('/local.png'),'https://groovy.test/local.png');
     assert.deepEqual(await mediaArtwork(''),[]);
     assert.deepEqual(await mediaArtwork('https://example.org/art.png'),[{src:'data:image/jpeg;base64,fixture',sizes:'512x512',type:'image/jpeg'}]);
     assert.equal(canvas.width,512);assert.equal(canvas.height,512);

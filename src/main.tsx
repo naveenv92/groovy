@@ -5,7 +5,7 @@ import type { Account, Episode, Feed, Podcast, Settings, Playback, ListeningHist
 import './style.css';
 import { filterEpisodes, sortEpisodes } from './episodes';
 import { listeningStats } from './stats';
-import { mediaArtwork } from './media-artwork';
+import { mediaArtwork, mediaArtworkUrl } from './media-artwork';
 import { seekPosition, playbackSpeed, findResume, playbackSnapshot, loadPaused } from './playback';
 
 async function api<T>(path: string, method='GET', data?: unknown, keepalive=false): Promise<T> {
@@ -220,9 +220,16 @@ function App() {
     const {episode,podcast}=current;
     const artwork=episode.artwork||podcast.artwork;
     const metadata={title:episode.title,artist:podcast.title,album:podcast.title};
-    navigator.mediaSession.metadata=new MediaMetadata({...metadata,artwork:artwork?[{src:artwork}]:[]});
+    const artworkTrial=new URLSearchParams(window.location.search).get('artworkTrial');
     let cancelled=false;
-    void mediaArtwork(artwork).then(images=>{if(!cancelled&&currentRef.current?.episode.id===episode.id)navigator.mediaSession.metadata=new MediaMetadata({...metadata,artwork:images});});
+    if(artworkTrial==='url'){
+      navigator.mediaSession.metadata=new MediaMetadata({...metadata,artwork:artwork?[{src:mediaArtworkUrl(artwork)}]:[]});
+    }else if(artworkTrial==='jpeg'){
+      void mediaArtwork(artwork).then(images=>{if(!cancelled&&currentRef.current?.episode.id===episode.id)navigator.mediaSession.metadata=new MediaMetadata({...metadata,artwork:images.filter(image=>image.type==='image/jpeg')});});
+    }else{
+      navigator.mediaSession.metadata=new MediaMetadata({...metadata,artwork:artwork?[{src:artwork}]:[]});
+      void mediaArtwork(artwork).then(images=>{if(!cancelled&&currentRef.current?.episode.id===episode.id)navigator.mediaSession.metadata=new MediaMetadata({...metadata,artwork:images});});
+    }
     const handlers: [MediaSessionAction,MediaSessionActionHandler][]=[['play',()=>{void audio.current?.play().catch(()=>setError('Tap play to resume.'));}],['pause',()=>audio.current?.pause()],['seekbackward',d=>d.seekOffset?seek((audio.current?.currentTime||0)-d.seekOffset):skip(-1)],['seekforward',d=>d.seekOffset?seek((audio.current?.currentTime||0)+d.seekOffset):skip(1)],['seekto',d=>{if(d.seekTime!==undefined)seek(d.seekTime);}]];
     for(const [name,handler]of handlers){try{navigator.mediaSession.setActionHandler(name,handler);}catch{/* Unsupported action on this browser. */}}
     return()=>{cancelled=true;for(const [name]of handlers){try{navigator.mediaSession.setActionHandler(name,null);}catch{}}};
