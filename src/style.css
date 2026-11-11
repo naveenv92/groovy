@@ -145,3 +145,5 @@ button.now-playing{padding:0;text-align:left;border-radius:8px}
 .episode-play.in-progress{background:linear-gradient(#ffdf85,#efc35d);color:#103e32;border-color:#aa792d;box-shadow:0 2px 0 #956525,inset 0 0 0 2px #fff0bf}
 .episode.completed{background:#d9d5ca66;filter:grayscale(1);border-radius:8px}
 .episode.completed h3,.episode.completed p,.episode.completed .episode-meta{color:#706e66}
+
+.episode{padding-left:16px;padding-right:16px}
