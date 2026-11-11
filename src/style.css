@@ -142,7 +142,7 @@ button.now-playing{padding:0;text-align:left;border-radius:8px}
 .modal .podcast-speed-override{display:flex;align-items:flex-start;gap:10px;font-size:12px;font-weight:400;line-height:1.6}
 .modal .podcast-speed-override input{width:18px;height:18px;flex-shrink:0;margin:1px 0 0;padding:0;accent-color:var(--green)}
 
-.episode-play.in-progress{background:linear-gradient(#ffdf85,#efc35d);color:#103e32;border-color:#aa792d;box-shadow:0 2px 0 #956525,inset 0 0 0 2px #fff0bf}
+.episode-play.in-progress,.episode-detail-actions>.primary.in-progress,.episode-detail-actions>.primary.in-progress:hover{background:linear-gradient(#ffdf85,#efc35d);color:#103e32;border-color:#aa792d;box-shadow:0 2px 0 #956525,inset 0 0 0 2px #fff0bf}
 .episode.completed .episode-play,.episode.completed .episode-body{filter:grayscale(1)}
 .episode.completed h3,.episode.completed p,.episode.completed .episode-meta{color:#706e66}
 
