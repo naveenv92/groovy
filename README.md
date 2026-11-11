@@ -27,7 +27,24 @@ npm run preview
 
 Open the URL Wrangler prints and enter the password you chose. The account ID is an administrator identifier; listeners enter only their password. No Cloudflare login or database write happens during hash generation.
 
-For frontend development, keep `npm run preview` running on port 8788 and run `npm run dev` in another terminal. Vite proxies `/api` to Wrangler; Wrangler watches the Worker API files; Vite handles frontend hot reload. `.dev.vars` is ignored by Git. Manual RSS entry works without directory credentials; search works without credentials through Apple’s podcast directory.
+For frontend development, keep `npm run preview` running on port 8788 and run `npm run dev` in another terminal. Vite proxies `/api` to Wrangler; Wrangler watches the Worker API files; Vite handles frontend hot reload. `.dev.vars` is ignored by Git. Manual RSS entry works without directory credentials; search uses Podcast Index and requires both credentials below.
+
+For podcast search, get a key and secret from [Podcast Index](https://api.podcastindex.org/) and add both to `.dev.vars`:
+
+```dotenv
+PODCAST_INDEX_KEY='your-key'
+PODCAST_INDEX_SECRET='your-secret'
+```
+
+Set both as Worker runtime secrets for production, then deploy the updated code:
+
+```sh
+npx wrangler secret put PODCAST_INDEX_KEY
+npx wrangler secret put PODCAST_INDEX_SECRET
+npm run deploy
+```
+
+RSS feeds and existing libraries still work without search credentials.
 
 ## Deploy to your Cloudflare account
 
@@ -52,7 +69,7 @@ Never upload `.dev.vars` or account passwords. If migrating from an already host
 
 ## Behavior
 
-- Search Apple’s podcast directory or open a public RSS URL, then follow shows in your library. Feeds and search results are cached for 15 minutes. Feeds are limited to 4 MB, 500 items, and four redirects. RSS 2.0 audio enclosures are supported; Atom and private feeds are outside v1.
+- Search Podcast Index or open a public RSS URL, then follow shows in your library. Feeds and search results are cached for 15 minutes. Feeds are limited to 4 MB, 500 items, and four redirects. RSS 2.0 audio enclosures are supported; Atom and private feeds are outside v1.
 - Audio streams directly from publishers. Native audio provides pitch-preserving 0.5×–2× speed, seeking, and independently configurable 5–120 second skips (15 back / 30 forward by default).
 - Progress syncs every 10 seconds during playback, on pause, when switching episodes, and on page hide on a best-effort basis. On refresh or login, the most recently listened-to unfinished episode reopens paused at its saved position. Playback never starts automatically. Older history is restored from the publisher feed when available. The latest server write wins across devices.
 - Passwords are chosen by you (1–256 characters, including spaces and Unicode) and hashed with salted scrypt (`N=32768, r=8, p=3`, 32-byte output). The `USER_PASSWORD_HASHES` secret maps stable account IDs to these hashes. Each person must have a different password because login has no username. Use long, unique passwords.

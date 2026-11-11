@@ -1,6 +1,6 @@
 import { readPasswordHashes, verifyPassword } from './password.mjs';
 import { digest, fail, fetchLimited, HttpError, parseFeed, publicUrl } from './lib';
-export interface ApiEnv { DB: D1Database; USER_PASSWORD_HASHES?: string }
+export interface ApiEnv { DB: D1Database; USER_PASSWORD_HASHES?: string; PODCAST_INDEX_KEY?: string; PODCAST_INDEX_SECRET?: string }
 const json = (data: unknown, status = 200, headers = {}) => Response.json(data, { status, headers: { 'Cache-Control': 'no-store', ...headers } });
 const cookie = (token: string, age: number, secure: boolean) => `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${age}${secure ? '; Secure' : ''}`;
 export async function handleApi(request: Request, env: ApiEnv, ctx: Pick<ExecutionContext, 'waitUntil'>): Promise<Response> {
@@ -117,10 +117,20 @@ export async function handleApi(request: Request, env: ApiEnv, ctx: Pick<Executi
     if (path === 'search' && method === 'GET') {
       const query = url.searchParams.get('q')?.trim() || '';
       if (query.length < 2 || query.length > 100) fail(400,'Enter 2–100 characters to search.');
-      const results = await cached(`search:apple:${query.toLowerCase()}`,async()=>{
-        const raw = await fetchLimited(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&media=podcast&entity=podcast&country=US&limit=30`);
+      if (!env.PODCAST_INDEX_KEY || !env.PODCAST_INDEX_SECRET) fail(503,'Podcast search is not configured. Set PODCAST_INDEX_KEY and PODCAST_INDEX_SECRET.');
+      const results = await cached(`search:podcastindex:${query.toLowerCase()}`,async()=>{
+        const timestamp = String(Math.floor(Date.now()/1000));
+        const authorization = [...new Uint8Array(await crypto.subtle.digest('SHA-1',new TextEncoder().encode(env.PODCAST_INDEX_KEY!+env.PODCAST_INDEX_SECRET!+timestamp)))].map(n=>n.toString(16).padStart(2,'0')).join('');
+        let raw: string;
+        try {
+          raw = await fetchLimited(`https://api.podcastindex.org/api/1.0/search/byterm?q=${encodeURIComponent(query)}&max=30`,{'User-Agent':'Groovy/1.0','X-Auth-Key':env.PODCAST_INDEX_KEY!,'X-Auth-Date':timestamp,'Authorization':authorization});
+        } catch (error) {
+          if (error instanceof HttpError && error.status===502) fail(502,error.message.replace('The publisher','Podcast Index'));
+          throw error;
+        }
         const data = JSON.parse(raw);
-        return (data.results || []).filter((f:any)=>f.feedUrl).map((f:any)=>({url:f.feedUrl,title:f.collectionName || f.trackName || 'Untitled podcast',author:f.artistName || '',artwork:f.artworkUrl600 || f.artworkUrl100 || ''}));
+        if (!Array.isArray(data.feeds)) fail(502,'Podcast Index returned an invalid search response.');
+        return data.feeds.filter((f:any)=>f && typeof f.url==='string' && f.url).map((f:any)=>({url:f.url,title:f.title || 'Untitled podcast',author:f.author || '',artwork:f.artwork || f.image || ''}));
       });
       return json(results);
     }

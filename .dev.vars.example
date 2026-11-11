@@ -1,2 +1,6 @@
 # Replace {} with the complete user JSON from `npm run user -- <account-id>`.
 USER_PASSWORD_HASHES='{}'
+
+# Podcast Index credentials from https://api.podcastindex.org/
+PODCAST_INDEX_KEY=''
+PODCAST_INDEX_SECRET=''

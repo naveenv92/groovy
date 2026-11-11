@@ -11,7 +11,7 @@ function database() {
   const wrap=(sql:string,values:unknown[]=[])=>({bind:(...v:unknown[])=>wrap(sql,v),first:async()=>sqlite.prepare(sql).get(...values as any[])||null,run:async()=>sqlite.prepare(sql).run(...values as any[]),all:async()=>({results:sqlite.prepare(sql).all(...values as any[])})});
   return {sqlite,db:{prepare:(sql:string)=>wrap(sql),batch:async(statements:any[])=>Promise.all(statements.map(s=>s.all()))}};
 }
-async function setup(){const {sqlite,db}=database();const credentials={...fixtureHashes};for(const id of ['alice','bob'])sqlite.prepare('INSERT INTO users(id,password_hash) VALUES(?,?)').run(id,await digest(id.repeat(10)));return {sqlite,credentials,request:async(path:string,method='GET',data?:unknown,cookie='',origin='https://groovy.test')=>await worker.fetch(new Request(`https://groovy.test/api/${path}`,{method,headers:{'Origin':origin,'Content-Type':'application/json','Cookie':cookie},body:data?JSON.stringify(data):undefined}),{DB:db,USER_PASSWORD_HASHES:JSON.stringify(credentials),ASSETS:{fetch:async()=>new Response('Unexpected asset request',{status:500})}},{waitUntil:()=>{}} as any) as Response};}
+async function setup(searchEnv: {PODCAST_INDEX_KEY?:string;PODCAST_INDEX_SECRET?:string}={}){const {sqlite,db}=database();const credentials={...fixtureHashes};for(const id of ['alice','bob'])sqlite.prepare('INSERT INTO users(id,password_hash) VALUES(?,?)').run(id,await digest(id.repeat(10)));return {sqlite,credentials,request:async(path:string,method='GET',data?:unknown,cookie='',origin='https://groovy.test')=>await worker.fetch(new Request(`https://groovy.test/api/${path}`,{method,headers:{'Origin':origin,'Content-Type':'application/json','Cookie':cookie},body:data?JSON.stringify(data):undefined}),{DB:db,USER_PASSWORD_HASHES:JSON.stringify(credentials),...searchEnv,ASSETS:{fetch:async()=>new Response('Unexpected asset request',{status:500})}},{waitUntil:()=>{}} as any) as Response};}
 test('password-only login, session cookies, progress isolation, settings and logout',async()=>{
   const {request,sqlite}=await setup();try{
     assert.equal((await request('me')).status,401);
@@ -56,18 +56,34 @@ test('rejects oversized JSON and private RSS URLs',async()=>{
     assert.equal((await request('feed?url=http://127.0.0.1/rss','GET',undefined,auth)).status,400);
   }finally{sqlite.close();}
 });
-test('Apple search needs no credentials and returns only podcasts with feeds',async()=>{
+test('search requires both Podcast Index credentials',async()=>{
+  for(const env of [{},{PODCAST_INDEX_KEY:'test-key'},{PODCAST_INDEX_SECRET:'test-secret'}]){
+    const {request,sqlite}=await setup(env);
+    try{
+      const login=await request('login','POST',{password:'alice'.repeat(10)}),auth=login.headers.get('set-cookie')!.split(';')[0];
+      const response=await request('search?q=casefile','GET',undefined,auth);
+      assert.equal(response.status,503);
+      assert.match((await response.json() as any).error,/PODCAST_INDEX_KEY and PODCAST_INDEX_SECRET/);
+    }finally{sqlite.close();}
+  }
+});
+test('Podcast Index search signs requests and returns only podcasts with feeds',async()=>{
   const originalFetch=globalThis.fetch, originalCaches=Object.getOwnPropertyDescriptor(globalThis,'caches');
   const hits: string[]=[];
   Object.defineProperty(globalThis,'caches',{configurable:true,value:{default:{match:async()=>undefined,put:async()=>{}}}});
-  globalThis.fetch=async(input)=>{
+  globalThis.fetch=async(input,init)=>{
     const url=String(input);
     if(url.includes('cloudflare-dns.com'))return Response.json({Answer:[{type:1,data:'1.1.1.1'}]});
-    assert.equal(new URL(url).hostname,'itunes.apple.com');
+    assert.equal(new URL(url).hostname,'api.podcastindex.org');
+    const headers=new Headers(init?.headers),timestamp=headers.get('X-Auth-Date')!;
+    assert.equal(headers.get('X-Auth-Key'),'test-key');assert.equal(headers.get('User-Agent'),'Groovy/1.0');
+    assert.ok(Math.abs(Number(timestamp)-Date.now()/1000)<5);
+    const {createHash}=await import('node:crypto');
+    assert.equal(headers.get('Authorization'),createHash('sha1').update('test-key'+'test-secret'+timestamp).digest('hex'));
     hits.push(url);
-    return Response.json({results:[{collectionName:'A show',artistName:'A host',feedUrl:'https://feeds.example.org/show',artworkUrl600:'https://cdn.example.org/art.jpg'},{collectionName:'No feed'}]});
+    return Response.json({feeds:[{title:'A show',author:'A host',url:'https://feeds.example.org/show',artwork:'https://cdn.example.org/art.jpg'},{title:'No feed'}]});
   };
-  const {request,sqlite}=await setup();
+  const {request,sqlite}=await setup({PODCAST_INDEX_KEY:'test-key',PODCAST_INDEX_SECRET:'test-secret'});
   try{
     const login=await request('login','POST',{password:'alice'.repeat(10)}), auth=login.headers.get('set-cookie')!.split(';')[0];
     assert.equal((await request('search?q=hi')).status,401);
@@ -75,7 +91,7 @@ test('Apple search needs no credentials and returns only podcasts with feeds',as
     const response=await request('search?q=science%20%26%20space','GET',undefined,auth);assert.equal(response.status,200);
     assert.deepEqual(await response.json(),[{url:'https://feeds.example.org/show',title:'A show',author:'A host',artwork:'https://cdn.example.org/art.jpg'}]);
     assert.equal(hits.length,1);
-    const query=new URL(hits[0]);assert.equal(query.searchParams.get('term'),'science & space');assert.equal(query.searchParams.get('entity'),'podcast');
+    const query=new URL(hits[0]);assert.equal(query.searchParams.get('q'),'science & space');assert.equal(query.pathname,'/api/1.0/search/byterm');assert.equal(query.searchParams.get('max'),'30');
   }finally{sqlite.close();globalThis.fetch=originalFetch;if(originalCaches)Object.defineProperty(globalThis,'caches',originalCaches);else delete (globalThis as any).caches;}
 });
 test('resume history excludes completed episodes and stays isolated per account',async()=>{
