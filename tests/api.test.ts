@@ -7,7 +7,7 @@ import { digest } from '../worker/lib';
 import { hashPassword } from '../worker/password.mjs';
 const fixtureHashes = {alice:await hashPassword('alice'.repeat(10)),bob:await hashPassword('bob'.repeat(10))};
 function database() {
-  const sqlite=new DatabaseSync(':memory:');sqlite.exec(readFileSync('migrations/0001_initial.sql','utf8'));sqlite.exec(readFileSync('migrations/0002_resume_playback.sql','utf8'));
+  const sqlite=new DatabaseSync(':memory:');sqlite.exec(readFileSync('migrations/0001_initial.sql','utf8'));sqlite.exec(readFileSync('migrations/0002_resume_playback.sql','utf8'));sqlite.exec(readFileSync('migrations/0003_podcast_speeds.sql','utf8'));
   const wrap=(sql:string,values:unknown[]=[])=>({bind:(...v:unknown[])=>wrap(sql,v),first:async()=>sqlite.prepare(sql).get(...values as any[])||null,run:async()=>sqlite.prepare(sql).run(...values as any[]),all:async()=>({results:sqlite.prepare(sql).all(...values as any[])})});
   return {sqlite,db:{prepare:(sql:string)=>wrap(sql),batch:async(statements:any[])=>Promise.all(statements.map(s=>s.all()))}};
 }
@@ -132,5 +132,31 @@ test('duplicate passwords never select an arbitrary account',async()=>{
     credentials.bob=await hashPassword('alice'.repeat(10));
     assert.equal((await request('login','POST',{password:'alice'.repeat(10)})).status,401);
     assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM sessions').get()!.n,0);
+  }finally{sqlite.close();}
+});
+
+test('podcast speed overrides persist per account without replacing the default speed',async()=>{
+  const {request,sqlite}=await setup();
+  try{
+    const login=await request('login','POST',{password:'alice'.repeat(10)}),auth=login.headers.get('set-cookie')!.split(';')[0];
+    const defaults={speed:1.25,skipBack:15,skipForward:30};
+    const podcastUrl='https://feeds.example.org/show';
+    assert.equal((await request('settings','PUT',defaults,auth)).status,200);
+    assert.equal((await request('settings','PUT',{...defaults,speed:1.75,podcastUrl,override:true},auth)).status,200);
+    let me=await(await request('me','GET',undefined,auth)).json() as any;
+    assert.equal(me.settings.speed,1.25);assert.deepEqual(me.podcastSpeeds,{[podcastUrl]:1.75});
+    const bob=await request('login','POST',{password:'bob'.repeat(10)}),bobAuth=bob.headers.get('set-cookie')!.split(';')[0];
+    assert.deepEqual((await(await request('me','GET',undefined,bobAuth)).json() as any).podcastSpeeds,{});
+    assert.equal((await request('settings','PUT',{...defaults,speed:2,podcastUrl,override:true},auth)).status,200);
+    assert.equal((await request('settings','PUT',{...defaults,speed:.75},auth)).status,200);
+    const again=await request('login','POST',{password:'alice'.repeat(10)}),againAuth=again.headers.get('set-cookie')!.split(';')[0];
+    me=await(await request('me','GET',undefined,againAuth)).json() as any;
+    assert.equal(me.settings.speed,.75);assert.equal(me.podcastSpeeds[podcastUrl],2);
+    for(const extra of [{podcastUrl},{override:true},{podcastUrl,override:'yes'},{podcastUrl:'http://127.0.0.1/feed',override:true},{podcastUrl,override:true,speed:2.1},{podcastUrl,override:true,speed:null}]){
+      assert.equal((await request('settings','PUT',{...defaults,...extra},auth)).status,400);
+    }
+    assert.equal((await request('settings','PUT',{...defaults,podcastUrl,override:false},auth)).status,200);
+    me=await(await request('me','GET',undefined,auth)).json() as any;
+    assert.deepEqual(me.podcastSpeeds,{});assert.equal(me.settings.speed,1.25);
   }finally{sqlite.close();}
 });

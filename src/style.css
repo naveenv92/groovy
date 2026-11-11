@@ -137,3 +137,7 @@ button.now-playing{padding:0;text-align:left;border-radius:8px}
 .speed-stops>span::before{content:'';position:absolute;top:0;left:50%;height:5px;border-left:1px solid #b08040}
 .speed-stops>.selected{color:var(--orange);font-weight:700}
 @media(forced-colors:active){.modal .speed-slider input{appearance:auto}.speed-slider input::-webkit-slider-thumb{appearance:auto}}
+
+.player-settings .speed-knob.has-override{background:linear-gradient(#245d47,#103e32);border-color:#0b3028;color:#ffebc5;box-shadow:0 2px 0 #082a21,inset 0 0 0 2px #4e8568}
+.modal .podcast-speed-override{display:flex;align-items:flex-start;gap:10px;font-size:12px;font-weight:400;line-height:1.6}
+.modal .podcast-speed-override input{width:18px;height:18px;flex-shrink:0;margin:1px 0 0;padding:0;accent-color:var(--green)}

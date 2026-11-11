@@ -66,14 +66,23 @@ export async function handleApi(request: Request, env: ApiEnv, ctx: Pick<Executi
         db.prepare('SELECT speed,skip_back AS skipBack,skip_forward AS skipForward FROM users WHERE id=?').bind(user),
         db.prepare('SELECT url,title,author,artwork FROM subscriptions WHERE user_id=? ORDER BY title').bind(user),
         db.prepare('SELECT episode_id,position,playback,completed FROM progress WHERE user_id=? ORDER BY updated DESC, rowid DESC').bind(user),
+        db.prepare('SELECT url,speed FROM podcast_speeds WHERE user_id=?').bind(user),
       ]);
       const resume = results[2].results.filter((r:any)=>!r.completed).map((r:any)=>({id:r.episode_id,position:r.position,playback:r.playback?JSON.parse(r.playback):null}));
-      return json({resume,settings:results[0].results[0], subscriptions:results[1].results,progress:Object.fromEntries(results[2].results.map((r:any)=>[r.episode_id,r.position]))});
+      return json({resume,podcastSpeeds:Object.fromEntries(results[3].results.map((r:any)=>[r.url,r.speed])),settings:results[0].results[0], subscriptions:results[1].results,progress:Object.fromEntries(results[2].results.map((r:any)=>[r.episode_id,r.position]))});
     }
     if (path === 'settings' && method === 'PUT') {
-      const {speed,skipBack,skipForward} = await body();
-      if (typeof speed !== 'number' || speed < .5 || speed > 2 || ![skipBack,skipForward].every(v=>Number.isInteger(v)&&v>=5&&v<=120)) fail(400,'Invalid playback settings.');
-      await db.prepare('UPDATE users SET speed=?,skip_back=?,skip_forward=? WHERE id=?').bind(speed,skipBack,skipForward,user).run();
+      const {speed,skipBack,skipForward,podcastUrl,override} = await body();
+      if (typeof speed !== 'number' || !Number.isFinite(speed) || speed < .5 || speed > 2 || ![skipBack,skipForward].every(v=>Number.isInteger(v)&&v>=5&&v<=120)) fail(400,'Invalid playback settings.');
+      if (podcastUrl !== undefined || override !== undefined) {
+        if (typeof podcastUrl !== 'string' || podcastUrl.length>2048 || typeof override !== 'boolean') fail(400,'Invalid podcast speed override.');
+        const feedUrl = publicUrl(podcastUrl);
+        if (override) await db.prepare('INSERT INTO podcast_speeds(user_id,url,speed) VALUES(?,?,?) ON CONFLICT(user_id,url) DO UPDATE SET speed=excluded.speed').bind(user,feedUrl,speed).run();
+        else await db.batch([
+          db.prepare('DELETE FROM podcast_speeds WHERE user_id=? AND url=?').bind(user,feedUrl),
+          db.prepare('UPDATE users SET speed=?,skip_back=?,skip_forward=? WHERE id=?').bind(speed,skipBack,skipForward,user),
+        ]);
+      } else await db.prepare('UPDATE users SET speed=?,skip_back=?,skip_forward=? WHERE id=?').bind(speed,skipBack,skipForward,user).run();
       return json({ok:true});
     }
     if (path === 'progress' && method === 'PUT') {

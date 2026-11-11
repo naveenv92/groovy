@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { seekPosition } from '../src/playback';
+import { seekPosition, playbackSpeed } from '../src/playback';
 test('skips clamp at start/end and can seek before total duration is known',()=>{
   assert.equal(seekPosition(5-15,100),0);assert.equal(seekPosition(90+30,100),100);
   assert.equal(seekPosition(40,100),40);assert.equal(seekPosition(30,Infinity),30);
@@ -32,4 +32,16 @@ test('snapshots keep actual duration without embedding the feed episode list',()
   const feed:Feed={...item.podcast,description:'Large feed',episodes:[item.episode]};
   const snapshot=playbackSnapshot({...item,podcast:feed},120);
   assert.equal(snapshot.episode.duration,120);assert.equal(snapshot.episode.description,'');assert.equal('episodes' in snapshot.podcast,false);
+});
+
+test('effective playback speed uses the current podcast override and falls back to the account default',()=>{
+  const account={settings:{speed:1.25,skipBack:15,skipForward:30},podcastSpeeds:{'https://feeds.example.org/a':1.75},subscriptions:[],progress:{},resume:[]};
+  assert.equal(playbackSpeed(account,'https://feeds.example.org/a'),1.75);
+  assert.equal(playbackSpeed(account,'https://feeds.example.org/b'),1.25);
+  assert.equal(playbackSpeed(account),1.25);
+  account.settings.speed=.75;
+  assert.equal(playbackSpeed(account,'https://feeds.example.org/a'),1.75);
+  delete account.podcastSpeeds['https://feeds.example.org/a'];
+  assert.equal(playbackSpeed(account,'https://feeds.example.org/a'),.75);
+  assert.equal(playbackSpeed(null),1);
 });

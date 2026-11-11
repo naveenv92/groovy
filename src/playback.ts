@@ -1,3 +1,9 @@
+import type { Account } from './types';
+
+export function playbackSpeed(account: Account | null, podcastUrl?: string) {
+  return (podcastUrl ? account?.podcastSpeeds?.[podcastUrl] : undefined) ?? account?.settings.speed ?? 1;
+}
+
 export function seekPosition(value: number, duration: number) {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(Number.isFinite(duration) && duration >= 0 ? duration : Infinity, value));
