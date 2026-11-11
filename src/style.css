@@ -213,3 +213,10 @@ button.now-playing:active:not(:disabled){transform:none}
 .history-status{display:inline-block;margin-top:7px;font-size:10px;background:var(--gold);color:var(--green)}
 
 .player-expanded .player-settings .player-mark{display:inline-flex;width:auto;min-height:44px;padding:10px 16px;font-size:13px}
+
+.timeline{display:grid;font-size:10px;grid-template-columns:6ch minmax(0,1fr) 6ch}
+.timeline input{width:100%;min-width:0;height:10px;margin:0}
+.timeline>span{white-space:nowrap}
+.timeline>span:last-child{text-align:right}
+
+.player-expanded .timeline{font-size:12px}
