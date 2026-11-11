@@ -211,3 +211,5 @@ button.now-playing:active:not(:disabled){transform:none}
 .history-row{cursor:pointer;-webkit-tap-highlight-color:transparent}
 .history-open{padding:0;text-align:left}
 .history-status{display:inline-block;margin-top:7px;font-size:10px;background:var(--gold);color:var(--green)}
+
+.player-expanded .player-settings .player-mark{display:inline-flex;width:auto;min-height:44px;padding:10px 16px;font-size:13px}
