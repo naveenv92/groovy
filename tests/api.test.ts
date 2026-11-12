@@ -7,7 +7,7 @@ import { digest } from '../worker/lib';
 import { hashPassword } from '../worker/password.mjs';
 const fixtureHashes = {alice:await hashPassword('alice'.repeat(10)),bob:await hashPassword('bob'.repeat(10))};
 function database() {
-  const sqlite=new DatabaseSync(':memory:');sqlite.exec(readFileSync('migrations/0001_initial.sql','utf8'));sqlite.exec(readFileSync('migrations/0002_resume_playback.sql','utf8'));sqlite.exec(readFileSync('migrations/0003_podcast_speeds.sql','utf8'));sqlite.exec(readFileSync('migrations/0004_public_artwork.sql','utf8'));
+  const sqlite=new DatabaseSync(':memory:');sqlite.exec(readFileSync('migrations/0001_initial.sql','utf8'));sqlite.exec(readFileSync('migrations/0002_resume_playback.sql','utf8'));sqlite.exec(readFileSync('migrations/0003_podcast_speeds.sql','utf8'));sqlite.exec(readFileSync('migrations/0004_public_artwork.sql','utf8'));sqlite.exec(readFileSync('migrations/0005_library_view.sql','utf8'));
   const wrap=(sql:string,values:unknown[]=[])=>({bind:(...v:unknown[])=>wrap(sql,v),first:async()=>sqlite.prepare(sql).get(...values as any[])||null,run:async()=>sqlite.prepare(sql).run(...values as any[]),all:async()=>({results:sqlite.prepare(sql).all(...values as any[])})});
   return {sqlite,db:{prepare:(sql:string)=>wrap(sql),batch:async(statements:any[])=>Promise.all(statements.map(s=>s.all()))}};
 }
@@ -235,5 +235,26 @@ test('published artwork is a stable public JPEG while uploads require a valid se
     const head=await request(new URL(url).pathname.slice(5),'HEAD',undefined,'','');
     assert.equal(head.status,200);assert.equal(head.headers.get('Content-Length'),String(bytes.length));assert.equal(await head.text(),'');
     assert.equal((await request('artwork/'+ '0'.repeat(64)+'.jpg')).status,404);
+  }finally{sqlite.close();}
+});
+
+test('library layout persists per account without changing playback settings',async()=>{
+  const {request,sqlite}=await setup();try{
+    const login=await request('login','POST',{password:'alice'.repeat(10)});
+    const auth=login.headers.get('set-cookie')!.split(';')[0];
+    const me=async(cookie=auth)=>await (await request('me','GET',undefined,cookie)).json() as any;
+    assert.equal((await me()).libraryView,'tiles');
+    assert.equal((await request('settings','PUT',{libraryView:'list'},auth)).status,200);
+    assert.equal((await me()).libraryView,'list');
+    assert.equal((await me()).settings.speed,1);
+    await request('settings','PUT',{speed:1.5,skipBack:15,skipForward:30},auth);
+    assert.equal((await me()).libraryView,'list');
+    assert.equal((await request('settings','PUT',{libraryView:'grid'},auth)).status,400);
+    const bob=await request('login','POST',{password:'bob'.repeat(10)});
+    assert.equal((await me(bob.headers.get('set-cookie')!.split(';')[0])).libraryView,'tiles');
+    const again=await request('login','POST',{password:'alice'.repeat(10)});
+    assert.equal((await me(again.headers.get('set-cookie')!.split(';')[0])).libraryView,'list');
+    await request('settings','PUT',{libraryView:'tiles'},auth);
+    assert.equal((await me()).libraryView,'tiles');
   }finally{sqlite.close();}
 });
