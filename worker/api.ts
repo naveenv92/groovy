@@ -1,5 +1,5 @@
 import { readPasswordHashes, verifyPassword } from './password.mjs';
-import { digest, fail, fetchLimited, fetchLimitedBytes, rasterImageType, HttpError, parseFeed, publicUrl } from './lib';
+import { digest, fail, fetchLimited, fetchLimitedBytes, rasterImageType, isSquareArtworkJpeg, HttpError, parseFeed, publicUrl } from './lib';
 export interface ApiEnv { DB: D1Database; USER_PASSWORD_HASHES?: string; PODCAST_INDEX_KEY?: string; PODCAST_INDEX_SECRET?: string }
 const json = (data: unknown, status = 200, headers = {}) => Response.json(data, { status, headers: { 'Cache-Control': 'no-store', ...headers } });
 const cookie = (token: string, age: number, secure: boolean) => `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${age}${secure ? '; Secure' : ''}`;
@@ -8,6 +8,13 @@ export async function handleApi(request: Request, env: ApiEnv, ctx: Pick<Executi
     const url = new URL(request.url), path = url.pathname.slice(5), method = request.method;
     const db = env.DB;
     if (!db) fail(503, 'Database is not configured. See the setup guide.');
+    const publicArtwork=path.match(/^artwork\/([a-f0-9]{64})\.jpg$/);
+    if (publicArtwork && (method==='GET'||method==='HEAD')) {
+      const image=await db.prepare('SELECT jpeg FROM public_artwork WHERE id=?').bind(publicArtwork[1]).first<{jpeg:string}>();
+      if (!image) return json({error:'Artwork not found.'},404);
+      const bytes=Uint8Array.from(atob(image.jpeg),char=>char.charCodeAt(0));
+      return new Response(method==='HEAD'?null:bytes,{headers:{'Content-Type':'image/jpeg','Content-Length':String(bytes.length),'X-Content-Type-Options':'nosniff','Access-Control-Allow-Origin':'*','Cache-Control':'public,max-age=31536000,immutable'}});
+    }
     if (!['GET', 'POST', 'PUT', 'DELETE'].includes(method)) fail(405, 'Method not allowed.');
     if (method !== 'GET' && request.headers.get('Origin') !== url.origin) fail(403, 'Request origin is not allowed.');
     const body = async (): Promise<any> => {
@@ -15,7 +22,7 @@ export async function handleApi(request: Request, env: ApiEnv, ctx: Pick<Executi
       const reader = request.body?.getReader(); if (!reader) fail(400, 'A JSON body is required.');
       const decoder = new TextDecoder(); let raw = '', size = 0;
       try {
-        for (;;) { const {done,value} = await reader!.read(); if (done) break; size += value.byteLength; if (size > 16_384) fail(413, 'Request is too large.'); raw += decoder.decode(value,{stream:true}); }
+        for (;;) { const {done,value} = await reader!.read(); if (done) break; size += value.byteLength; if (size > (path==='artwork'&&method==='POST'?512_000:16_384)) fail(413, 'Request is too large.'); raw += decoder.decode(value,{stream:true}); }
         raw += decoder.decode();
       } finally { await reader!.cancel(); }
       try { const parsed = JSON.parse(raw); if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) fail(400, 'Expected an object.'); return parsed; } catch { return fail(400, 'Invalid JSON.'); }
@@ -60,6 +67,17 @@ export async function handleApi(request: Request, env: ApiEnv, ctx: Pick<Executi
     if (path === 'logout' && method === 'POST') {
       await db.prepare('DELETE FROM sessions WHERE token_hash=?').bind(tokenHash).run();
       return json({ok:true},200,{'Set-Cookie':cookie('',0,url.protocol==='https:')});
+    }
+    if (path==='artwork' && method==='POST') {
+      const {jpeg}=await body();
+      if (typeof jpeg!=='string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(jpeg)) fail(400,'Expected a base64 JPEG.');
+      let bytes: Uint8Array;
+      try {bytes=Uint8Array.from(atob(jpeg),char=>char.charCodeAt(0));}catch{return fail(400,'Invalid JPEG encoding.');}
+      if (!isSquareArtworkJpeg(bytes!)) fail(400,'Artwork must be a 512×512 JPEG.');
+      const id=await digest(jpeg);
+      // shortcut: retain small trial JPEGs in D1; move to R2 if the artwork archive grows.
+      await db.prepare('INSERT INTO public_artwork(id,jpeg) VALUES(?,?) ON CONFLICT(id) DO NOTHING').bind(id,jpeg).run();
+      return json({url:`${url.origin}/api/artwork/${id}.jpg`});
     }
     if (path === 'artwork' && method === 'GET') {
       const bytes = await fetchLimitedBytes(publicUrl(url.searchParams.get('url') || ''),{'Accept':'image/jpeg,image/png,image/webp,image/gif','User-Agent':'Groovy/1.0'});

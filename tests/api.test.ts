@@ -7,7 +7,7 @@ import { digest } from '../worker/lib';
 import { hashPassword } from '../worker/password.mjs';
 const fixtureHashes = {alice:await hashPassword('alice'.repeat(10)),bob:await hashPassword('bob'.repeat(10))};
 function database() {
-  const sqlite=new DatabaseSync(':memory:');sqlite.exec(readFileSync('migrations/0001_initial.sql','utf8'));sqlite.exec(readFileSync('migrations/0002_resume_playback.sql','utf8'));sqlite.exec(readFileSync('migrations/0003_podcast_speeds.sql','utf8'));
+  const sqlite=new DatabaseSync(':memory:');sqlite.exec(readFileSync('migrations/0001_initial.sql','utf8'));sqlite.exec(readFileSync('migrations/0002_resume_playback.sql','utf8'));sqlite.exec(readFileSync('migrations/0003_podcast_speeds.sql','utf8'));sqlite.exec(readFileSync('migrations/0004_public_artwork.sql','utf8'));
   const wrap=(sql:string,values:unknown[]=[])=>({bind:(...v:unknown[])=>wrap(sql,v),first:async()=>sqlite.prepare(sql).get(...values as any[])||null,run:async()=>sqlite.prepare(sql).run(...values as any[]),all:async()=>({results:sqlite.prepare(sql).all(...values as any[])})});
   return {sqlite,db:{prepare:(sql:string)=>wrap(sql),batch:async(statements:any[])=>Promise.all(statements.map(s=>s.all()))}};
 }
@@ -206,4 +206,34 @@ test('artwork proxy requires login, limits downloads, and serves only public ras
       mode=scenario;assert.equal((await request(path,'GET',undefined,auth)).status,status);
     }
   }finally{sqlite.close();globalThis.fetch=originalFetch;}
+});
+
+test('published artwork is a stable public JPEG while uploads require a valid session',async()=>{
+  const {request,sqlite}=await setup();
+  const bytes=new Uint8Array([255,216,255,192,0,17,8,2,0,2,0,3,1,17,0,2,17,0,3,17,0,255,217]);
+  const jpeg=Buffer.from(bytes).toString('base64');
+  try{
+    assert.equal((await request('artwork','POST',{jpeg})).status,401);
+    const login=await request('login','POST',{password:'alice'.repeat(10)}),auth=login.headers.get('set-cookie')!.split(';')[0];
+    const published=await request('artwork','POST',{jpeg},auth);
+    assert.equal(published.status,200);
+    const {url}=await published.json() as {url:string};
+    assert.match(url,/^https:\/\/groovy\.test\/api\/artwork\/[a-f0-9]{64}\.jpg$/);
+    assert.deepEqual(await(await request('artwork','POST',{jpeg},auth)).json(),{url});
+    assert.equal(sqlite.prepare('SELECT COUNT(*) AS count FROM public_artwork').get()!.count,1);
+    for(const invalid of ['not base64!',Buffer.from('<svg/>').toString('base64'),Buffer.from(bytes.map((byte,index)=>index===8?1:byte)).toString('base64')]){
+      assert.equal((await request('artwork','POST',{jpeg:invalid},auth)).status,400);
+    }
+    assert.equal((await request('artwork','POST',{jpeg:'A'.repeat(512_000)},auth)).status,413);
+    assert.equal((await request('artwork','POST',{jpeg},auth,'https://evil.test')).status,403);
+    await request('logout','POST',{},auth);
+    const image=await request(new URL(url).pathname.slice(5));
+    assert.equal(image.status,200);assert.equal(image.headers.get('Content-Type'),'image/jpeg');
+    assert.match(image.headers.get('Cache-Control')!,/public.*immutable/);
+    assert.equal(image.headers.get('X-Content-Type-Options'),'nosniff');
+    assert.deepEqual(new Uint8Array(await image.arrayBuffer()),bytes);
+    const head=await request(new URL(url).pathname.slice(5),'HEAD',undefined,'','');
+    assert.equal(head.status,200);assert.equal(head.headers.get('Content-Length'),String(bytes.length));assert.equal(await head.text(),'');
+    assert.equal((await request('artwork/'+ '0'.repeat(64)+'.jpg')).status,404);
+  }finally{sqlite.close();}
 });

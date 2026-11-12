@@ -115,3 +115,16 @@ export function rasterImageType(bytes: Uint8Array) {
   if (header.startsWith('RIFF') && header.slice(8)==='WEBP') return 'image/webp';
   return null;
 }
+
+export function isSquareArtworkJpeg(bytes: Uint8Array) {
+  if (bytes[0]!==255 || bytes[1]!==216 || bytes[bytes.length-2]!==255 || bytes[bytes.length-1]!==217) return false;
+  for (let offset=2; offset+4<=bytes.length;) {
+    if (bytes[offset]!==255) return false;
+    const marker=bytes[offset+1], length=bytes[offset+2]*256+bytes[offset+3];
+    if (length<2 || offset+2+length>bytes.length) return false;
+    if (marker===192 || marker===194) return length>=8 && bytes[offset+5]*256+bytes[offset+6]===512 && bytes[offset+7]*256+bytes[offset+8]===512;
+    if (marker===218 || marker===217) return false;
+    offset+=2+length;
+  }
+  return false;
+}

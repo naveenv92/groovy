@@ -1,0 +1,1 @@
+CREATE TABLE public_artwork (id TEXT PRIMARY KEY, jpeg TEXT NOT NULL);
