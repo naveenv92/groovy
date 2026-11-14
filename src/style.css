@@ -220,3 +220,6 @@ button.now-playing:active:not(:disabled){transform:none}
 .timeline>span:last-child{text-align:right}
 
 .player-expanded .timeline{font-size:12px}
+
+/* Keep the bundled iOS UI below the status bar. */
+html.native-ios .sidebar{padding-top:calc(18px + env(safe-area-inset-top,0px))}

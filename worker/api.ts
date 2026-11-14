@@ -94,7 +94,7 @@ export async function handleApi(request: Request, env: ApiEnv, ctx: Pick<Executi
       ]);
       const resume = results[2].results.filter((r:any)=>!r.completed).map((r:any)=>({id:r.episode_id,position:r.position,playback:r.playback?JSON.parse(r.playback):null}));
       const history = results[2].results.filter((r:any)=>r.playback&&(r.position>0||r.completed)).map((r:any)=>({...JSON.parse(r.playback),position:r.position,completed:!!r.completed,updatedAt:r.updated}));
-      return json({libraryView:(results[0].results[0] as {libraryView:string}).libraryView,resume,history,episodePodcasts:Object.fromEntries(results[2].results.filter((r:any)=>r.playback).map((r:any)=>[r.episode_id,JSON.parse(r.playback).podcast])),completed:Object.fromEntries(results[2].results.map((r:any)=>[r.episode_id,!!r.completed])),podcastSpeeds:Object.fromEntries(results[3].results.map((r:any)=>[r.url,r.speed])),settings:results[0].results[0], subscriptions:results[1].results,progress:Object.fromEntries(results[2].results.map((r:any)=>[r.episode_id,r.position]))});
+      return json({accountId:user,libraryView:(results[0].results[0] as {libraryView:string}).libraryView,resume,history,episodePodcasts:Object.fromEntries(results[2].results.filter((r:any)=>r.playback).map((r:any)=>[r.episode_id,JSON.parse(r.playback).podcast])),completed:Object.fromEntries(results[2].results.map((r:any)=>[r.episode_id,!!r.completed])),podcastSpeeds:Object.fromEntries(results[3].results.map((r:any)=>[r.url,r.speed])),settings:results[0].results[0], subscriptions:results[1].results,progress:Object.fromEntries(results[2].results.map((r:any)=>[r.episode_id,r.position]))});
     }
     if (path === 'settings' && method === 'PUT') {
       const data = await body();

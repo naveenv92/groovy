@@ -101,3 +101,7 @@ An iPhone Safari/Rivian test found that neither a single same-origin artwork URL
 Apply `0004_public_artwork.sql` locally with `npm run db:migrate` and remotely with `npx wrangler d1 migrations apply groovy --remote` before deploying this change. Signed-in clients publish converted JPEGs; anyone with the resulting `/api/artwork/<hash>.jpg` URL can download the image without cookies or an expiring signature. GET and HEAD return `Content-Type: image/jpeg`. Images are deduplicated by content and retained in D1 for this trial.
 
 After deployment, start an episode, check that Media Session uses an HTTPS artwork URL, and open that URL in a private browser window to confirm it downloads without authentication. Compare the same episode on the iPhone lock screen and Rivian after reconnecting Bluetooth. This tests public JPEG URL compatibility; iOS still controls whether artwork is sent over AVRCP.
+
+## Native iOS app
+
+The Capacitor app reuses the React UI with native streaming playback and system media controls. See [iOS build, installation, and verification](docs/ios.md). Downloads and App Store distribution are deferred.

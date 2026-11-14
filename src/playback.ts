@@ -39,7 +39,7 @@ export function playbackSnapshot(item: Playback, duration: number): Playback {
   };
 }
 
-export function loadPaused(element: HTMLAudioElement, item: Playback, speed: number) {
+export function loadPaused(element: Pick<HTMLAudioElement,'pause'|'src'|'playbackRate'|'preservesPitch'>, item: Playback, speed: number) {
   element.pause();
   element.src = item.episode.audio;
   element.playbackRate = speed;

@@ -8,12 +8,9 @@ import { listeningStats } from './stats';
 import { mediaArtwork } from './media-artwork';
 import { seekPosition, playbackSpeed, findResume, playbackSnapshot, loadPaused } from './playback';
 
-async function api<T>(path: string, method='GET', data?: unknown, keepalive=false): Promise<T> {
-  const response = await fetch(`/api/${path}`, {method, credentials:'same-origin',keepalive,headers:data ? {'Content-Type':'application/json'} : {},body:data ? JSON.stringify(data) : undefined});
-  const result: any = await response.json();
-  if (!response.ok) throw new Error(result.error || 'Request failed. Please retry.');
-  return result;
-}
+import { api, nativeIOS } from './api';
+import { createAudioEngine } from './audio-engine';
+if(nativeIOS)document.documentElement.classList.add('native-ios');
 const clock = (seconds: number) => { const n = Math.floor(Number.isFinite(seconds) ? Math.max(0,seconds) : 0); return `${Math.floor(n/60)}:${String(n%60).padStart(2,'0')}`; };
 const minutes = (seconds: number) => seconds ? `${Math.round(seconds/60)} min` : '';
 function Icon({name,size=22}: {name:string;size?:number}) {
@@ -63,19 +60,24 @@ function App() {
   const [view,setView]=useState<'library'|'discover'|'stats'>('library'),[query,setQuery]=useState(''),[rss,setRss]=useState(''),[results,setResults]=useState<Podcast[]>([]);
   const [feed,setFeed]=useState<Feed|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[settingsOpen,setSettingsOpen]=useState<false|'speed'|'all'>(false);
   const [current,setCurrent]=useState<{episode:Episode;podcast:Podcast}|null>(null),[playing,setPlaying]=useState(false),[position,setPosition]=useState(0),[duration,setDuration]=useState(0),[buffering,setBuffering]=useState(false);
-  const audio=useRef<HTMLAudioElement>(null),accountRef=useRef(account),currentRef=useRef(current),restore=useRef(0),feedRequest=useRef(0),lastSave=useRef(0);
+  const audio=useRef(useMemo(createAudioEngine,[])),accountRef=useRef(account),currentRef=useRef(current),restore=useRef(0),feedRequest=useRef(0),lastSave=useRef(0);
   accountRef.current=account; currentRef.current=current;
   useEffect(()=>{api<Account>('me').then(setAccount).catch(e=>{if(e.message!=='Please sign in.')setError(e.message);}).finally(()=>setBoot(false));},[]);
   useEffect(()=>{
     if (boot || !account) return;
     let cancelled=false;
-    void findResume(account.resume, url=>api<Feed>(`feed?url=${encodeURIComponent(url)}`)).then(saved=>{
+    void (async()=>{
+      const active=await audio.current.restoreActive?.();
+      if(active?.item&&!cancelled){currentRef.current=active.item;setCurrent(active.item);setPosition(active.position);setPlaying(active.playing);return null;}
+      return findResume(account.resume, url=>api<Feed>(`feed?url=${encodeURIComponent(url)}`));
+    })().then(saved=>{
       if (!saved || cancelled || currentRef.current || !audio.current) return;
       const item={episode:saved.episode,podcast:saved.podcast};
       restore.current=saved.position;currentRef.current=item;setCurrent(item);
       setPosition(saved.position);setDuration(saved.episode.duration);setPlaying(false);
+      audio.current.configure?.(item,account.settings.skipBack,account.settings.skipForward);
       loadPaused(audio.current,item,playbackSpeed(account,item.podcast.url));
-      if('mediaSession' in navigator)navigator.mediaSession.playbackState='paused';
+      if(!nativeIOS&&'mediaSession' in navigator)navigator.mediaSession.playbackState='paused';
     });
     return()=>{cancelled=true;};
   },[boot,!!account]);
@@ -95,7 +97,7 @@ function App() {
       await saveProgress();audio.current?.pause();await api('logout','POST',{});
       currentRef.current=null;setCurrent(null);setAccount(null);setSettingsOpen(false);setPlayerExpanded(false);
       setFeed(null);setSelectedEpisode(null);setResults([]);setQuery('');setRss('');setSearched(false);
-      if('mediaSession'in navigator){navigator.mediaSession.metadata=null;navigator.mediaSession.playbackState='none';}
+      if(!nativeIOS&&'mediaSession'in navigator){navigator.mediaSession.metadata=null;navigator.mediaSession.playbackState='none';}
     });
   }
   const subscribed=(url:string)=>account?.subscriptions.some(p=>p.url===url);
@@ -123,7 +125,7 @@ function App() {
     if(settingsOpen==='speed')setSettingsOpen(false);
     const element=audio.current;
     if(element){element.pause();element.removeAttribute('src');element.load();}
-    if('mediaSession' in navigator){navigator.mediaSession.metadata=null;navigator.mediaSession.playbackState='none';}
+    if(!nativeIOS&&'mediaSession' in navigator){navigator.mediaSession.metadata=null;navigator.mediaSession.playbackState='none';}
   }
   async function saveProgress(keepalive=false) {
     const item=currentRef.current,element=audio.current;
@@ -132,7 +134,7 @@ function App() {
     const completed=!!accountRef.current?.completed?.[item.episode.id]||element.ended||(Number.isFinite(element.duration)&&element.duration>0&&p>=element.duration);
     const snapshot=playbackSnapshot(item,element.duration);
     updateEpisodeProgress(item.episode.id,p,completed,item);
-    try{await api('progress','PUT',{id:item.episode.id,position:p,playback:snapshot,completed},keepalive);}catch{setError('Progress could not sync. Check your connection; playback can continue.');}
+    try{if(!nativeIOS)await api('progress','PUT',{id:item.episode.id,position:p,playback:snapshot,completed},keepalive);}catch{setError('Progress could not sync. Check your connection; playback can continue.');}
   }
   useEffect(()=>{
     const timer=window.setInterval(()=>{if(audio.current&&!audio.current.paused)void saveProgress();},10000);
@@ -147,7 +149,7 @@ function App() {
     void saveProgress();element.pause();
     restore.current=accountRef.current?.completed?.[episode.id]?0:accountRef.current?.progress[episode.id] || 0;
     currentRef.current={episode,podcast};setCurrent({episode,podcast});setPosition(restore.current);setDuration(episode.duration);setBuffering(true);
-    element.src=episode.audio;element.playbackRate=playbackSpeed(accountRef.current,podcast.url);element.preservesPitch=true;
+    element.configure?.({episode,podcast},accountRef.current?.settings.skipBack||15,accountRef.current?.settings.skipForward||30);element.src=episode.audio;element.playbackRate=playbackSpeed(accountRef.current,podcast.url);element.preservesPitch=true;
     try{await element.play();}catch{if(currentRef.current?.episode.id===episode.id&&element.paused&&element.currentTime===0)dismissPlayer();setBuffering(false);setError('Could not play this episode. Tap play to retry, or try another episode.');}
   }
   function openEpisode(episode:Episode) {
@@ -204,25 +206,25 @@ function App() {
   function toggle(){const a=audio.current,item=currentRef.current;if(!a||!item)return;if(a.paused){if(a.ended||accountRef.current?.completed?.[item.episode.id]){seek(0);}a.play().catch(()=>setError('Playback failed. The publisher may be unavailable.'));}else a.pause();}
   function seek(value:number){const a=audio.current;if(!a||a.readyState<1)return;const next=seekPosition(value,a.duration);try{a.currentTime=next;setPosition(next);updatePosition();}catch{setError('This episode cannot seek to that position yet.');}}
   function skip(direction:number){seek((audio.current?.currentTime||0)+direction*(direction<0?(accountRef.current?.settings.skipBack||15):(accountRef.current?.settings.skipForward||30)));}
-  function updatePosition(){const a=audio.current;if('mediaSession'in navigator&&a&&Number.isFinite(a.duration)&&a.duration>0){try{navigator.mediaSession.setPositionState({duration:a.duration,playbackRate:a.playbackRate,position:Math.min(a.currentTime,a.duration)});}catch{/* Browser may not support position state. */}}}
+  function updatePosition(){const a=audio.current;if(!nativeIOS&&'mediaSession'in navigator&&a&&Number.isFinite(a.duration)&&a.duration>0){try{navigator.mediaSession.setPositionState({duration:a.duration,playbackRate:a.playbackRate,position:Math.min(a.currentTime,a.duration)});}catch{/* Browser may not support position state. */}}}
   async function settings(next:Settings,podcast?:{url:string;enabled:boolean}) {
     const previous=accountRef.current;if(!previous)return;
     const podcastSpeeds={...previous.podcastSpeeds};
     if(podcast){if(podcast.enabled)podcastSpeeds[podcast.url]=next.speed;else delete podcastSpeeds[podcast.url];}
     const updated={...previous,settings:podcast?.enabled?previous.settings:next,podcastSpeeds};
     accountRef.current=updated;setAccount(updated);
-    if(audio.current){audio.current.playbackRate=playbackSpeed(updated,currentRef.current?.podcast.url);updatePosition();}
+    if(audio.current){audio.current.updateSettings?.(updated.settings.skipBack,updated.settings.skipForward);audio.current.playbackRate=playbackSpeed(updated,currentRef.current?.podcast.url);updatePosition();}
     try{await api('settings','PUT',{...next,...(podcast?{podcastUrl:podcast.url,override:podcast.enabled}:{})});}
     catch(e){
       setAccount(a=>a?{...a,settings:previous.settings,podcastSpeeds:previous.podcastSpeeds}:a);
       accountRef.current={...accountRef.current!,settings:previous.settings,podcastSpeeds:previous.podcastSpeeds};
-      if(audio.current){audio.current.playbackRate=playbackSpeed(accountRef.current,currentRef.current?.podcast.url);updatePosition();}
+      if(audio.current){audio.current.updateSettings?.(previous.settings.skipBack,previous.settings.skipForward);audio.current.playbackRate=playbackSpeed(accountRef.current,currentRef.current?.podcast.url);updatePosition();}
       setError((e as Error).message);
     }
   }
 
   useEffect(()=>{
-    if(!current||!('mediaSession'in navigator))return;
+    if(nativeIOS||!current||!('mediaSession'in navigator))return;
     const {episode,podcast}=current;
     const artwork=episode.artwork||podcast.artwork;
     const metadata={title:episode.title,artist:podcast.title,album:podcast.title};
@@ -251,7 +253,24 @@ function App() {
     document.addEventListener('keydown',key);return()=>{document.removeEventListener('keydown',key);document.body.style.overflow=overflow;(playerExpanded&&!settingsOpen?document.querySelector<HTMLButtonElement>('button.now-playing'):previous)?.focus();};
   },[settingsOpen,playerExpanded]);
   const changeView=(next:'library'|'discover'|'stats')=>{if(next==='stats')setVisibleHistory(50);feedRequest.current++;setBusy(false);setView(next);setFeed(null);setSelectedEpisode(null);setError('');};
-  const player=<audio ref={audio} preload="metadata" onLoadedMetadata={()=>{const a=audio.current!;setDuration(Number.isFinite(a.duration)?a.duration:currentRef.current?.episode.duration||0);if(restore.current){const p=restore.current;restore.current=0;seek(p);}a.playbackRate=playbackSpeed(accountRef.current,currentRef.current?.podcast.url);updatePosition();void saveProgress();}} onTimeUpdate={()=>{setPosition(audio.current?.currentTime||0);if(Date.now()-lastSave.current>1000){updatePosition();lastSave.current=Date.now();}}} onPlay={()=>{const id=currentRef.current?.episode.id;if(!id)return;if(accountRef.current?.completed?.[id]){updateEpisodeProgress(id,0,false);seek(0);}setPlaying(true);if('mediaSession'in navigator)navigator.mediaSession.playbackState='playing';void saveProgress();}} onPause={()=>{setPlaying(false);if('mediaSession'in navigator)navigator.mediaSession.playbackState=currentRef.current?'paused':'none';void saveProgress();}} onWaiting={()=>setBuffering(true)} onPlaying={()=>setBuffering(false)} onCanPlay={()=>setBuffering(false)} onEnded={()=>{void saveProgress();dismissPlayer();}} onError={()=>{setBuffering(false);setPlaying(false);setError('This audio could not load. Retry playback or choose another episode.');}}/>;
+  useEffect(()=>{
+    const element=audio.current;
+    if(!nativeIOS)document.body.appendChild(element as HTMLAudioElement);
+    const handlers:[string,()=>void][]=[
+      ['loadedmetadata',()=>{const a=audio.current!;setDuration(Number.isFinite(a.duration)?a.duration:currentRef.current?.episode.duration||0);if(restore.current){const p=restore.current;restore.current=0;seek(p);}a.playbackRate=playbackSpeed(accountRef.current,currentRef.current?.podcast.url);updatePosition();void saveProgress();}],
+      ['timeupdate',()=>{setPosition(audio.current?.currentTime||0);if(Date.now()-lastSave.current>1000){updatePosition();lastSave.current=Date.now();}}],
+      ['play',()=>{const id=currentRef.current?.episode.id;if(!id)return;if(accountRef.current?.completed?.[id]){updateEpisodeProgress(id,0,false);seek(0);}setPlaying(true);if(!nativeIOS&&'mediaSession'in navigator)navigator.mediaSession.playbackState='playing';void saveProgress();}],
+      ['pause',()=>{setPlaying(false);if(!nativeIOS&&'mediaSession'in navigator)navigator.mediaSession.playbackState=currentRef.current?'paused':'none';void saveProgress();}],
+      ['waiting',()=>setBuffering(true)],
+      ['playing',()=>setBuffering(false)],
+      ['canplay',()=>setBuffering(false)],
+      ['ended',()=>{void saveProgress();dismissPlayer();}],
+      ['error',()=>{setBuffering(false);setPlaying(false);setError('This audio could not load. Retry playback or choose another episode.');}],
+    ];
+    for(const [name,handler] of handlers)element.addEventListener(name,handler);
+    return()=>{for(const [name,handler] of handlers)element.removeEventListener(name,handler);element.dispose?.();if(!nativeIOS)(element as HTMLAudioElement).remove();};
+  },[]);
+  const player=null;
   const podcastOverride=current?account?.podcastSpeeds?.[current.podcast.url]:undefined;
   const currentSpeed=playbackSpeed(account,current?.podcast.url);
   const matchingEpisodes=useMemo(()=>sortEpisodes(filterEpisodes(feed?.episodes||[],appliedEpisodeQuery),oldestFirst),[feed,appliedEpisodeQuery,oldestFirst]);

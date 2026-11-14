@@ -20,7 +20,7 @@ test('password-only login, session cookies, progress isolation, settings and log
     const auth=cookie.split(';')[0];
     assert.equal((await request('progress','PUT',{id:'episode1',position:55},auth)).status,200);
     assert.equal((await request('settings','PUT',{speed:1.5,skipBack:10,skipForward:45},auth)).status,200);
-    const me=await (await request('me','GET',undefined,auth)).json() as any;assert.equal(me.progress.episode1,55);assert.equal(me.settings.speed,1.5);
+    const me=await (await request('me','GET',undefined,auth)).json() as any;assert.equal(me.accountId,'alice');assert.equal(me.progress.episode1,55);assert.equal(me.settings.speed,1.5);
     const bob=await request('login','POST',{password:'bob'.repeat(10)});const bobAuth=bob.headers.get('set-cookie')!.split(';')[0];
     assert.deepEqual((await (await request('me','GET',undefined,bobAuth)).json() as any).progress,{});
     assert.equal((await request('progress','PUT',{id:'episode1',position:-1},auth)).status,400);
