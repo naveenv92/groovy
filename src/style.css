@@ -225,3 +225,5 @@ button.now-playing:active:not(:disabled){transform:none}
 html.native-ios .sidebar{padding-top:calc(18px + env(safe-area-inset-top,0px))}
 /* Prevent iOS focus zoom from leaving the native viewport enlarged. */
 html.native-ios input:not([type="range"]):not([type="checkbox"]),html.native-ios textarea,html.native-ios select{font-size:16px}
+
+.skip svg{transform-origin:50% 50%;transform-box:view-box}
