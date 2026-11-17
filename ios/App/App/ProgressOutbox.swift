@@ -15,7 +15,7 @@ final class ProgressOutbox {
     init(defaults:UserDefaults,account:@escaping()->String?,send:@escaping(Snapshot,@escaping(Bool)->Void)->Void){self.defaults=defaults;self.account=account;self.send=send}
     @discardableResult func enqueue(_ snapshot:Snapshot)->Bool {
         guard let account=account(),let id=snapshot["id"] as? String else{return false}
-        var values=pending;values[account+"|"+id]=snapshot;pending=values
+        var values=pending;values[account+"|"+id]=Self.compact(snapshot);pending=values
         return true
     }
     func clear(){pending=[:]}
@@ -24,14 +24,25 @@ final class ProgressOutbox {
         guard !sending else{return}
         guard let account=account() else{finish(false);return}
         guard let entry=pending.first(where:{$0.key.hasPrefix(account+"|")}) else{finish(true);return}
+        // Older app versions queued entire feeds; repair those records before retrying.
+        let snapshot=Self.compact(entry.value)
+        var repaired=pending;repaired[entry.key]=snapshot;pending=repaired
         sending=true
-        send(entry.value){success in
+        send(snapshot){success in
             self.sending=false
             guard success,self.account()==account else{self.finish(false);return}
             var values=self.pending
-            if NSDictionary(dictionary:values[entry.key] ?? [:]).isEqual(to:entry.value){values.removeValue(forKey:entry.key)}
+            if NSDictionary(dictionary:values[entry.key] ?? [:]).isEqual(to:snapshot){values.removeValue(forKey:entry.key)}
             self.pending=values;self.flush()
         }
+    }
+    private static func compact(_ snapshot:Snapshot)->Snapshot {
+        guard let playback=snapshot["playback"] as? Snapshot,let episode=playback["episode"] as? Snapshot,let podcast=playback["podcast"] as? Snapshot else{return snapshot}
+        var result=snapshot
+        var details=episode.filter{["id","title","audio","artwork","duration"].contains($0.key)}
+        details["description"]="";details["date"]=""
+        result["playback"]=["episode":details,"podcast":podcast.filter{["url","title","author","artwork"].contains($0.key)}]
+        return result
     }
     private func finish(_ success:Bool){let callbacks=waiters;waiters=[];callbacks.forEach{$0(success)}}
 }

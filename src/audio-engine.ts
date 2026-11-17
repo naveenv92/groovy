@@ -1,6 +1,7 @@
 import { registerPlugin } from '@capacitor/core';
 import { nativeIOS } from './api';
 import type { Playback } from './types';
+import { playbackSnapshot } from './playback';
 
 interface NativeState { id:string;position:number;duration:number;paused:boolean;ended:boolean;buffering:boolean;error?:string }
 export interface NativePlayer {
@@ -38,7 +39,7 @@ export function createNativeAudioEngine(player:NativePlayer):AudioEngine {
   return Object.assign(target,{
     preservesPitch:true,
     async restoreActive(){const saved=await player.snapshot();if(saved.item){id=saved.item.episode.id;src=saved.item.episode.audio;position=saved.position;paused=!saved.playing;}return saved;},
-    configure(item:Playback,back:number,forward:number){id=item.episode.id;duration=NaN;src=item.episode.audio;position=0;void send({action:'load',item,back,forward,speed:rate});},
+    configure(item:Playback,back:number,forward:number){id=item.episode.id;duration=NaN;src=item.episode.audio;position=0;void send({action:'load',item:playbackSnapshot(item,item.episode.duration),back,forward,speed:rate});},
     updateSettings(back:number,forward:number){void send({action:'settings',back,forward});},
     play(){return player.command({action:'play'});},pause(){void send({action:'pause'});},
     removeAttribute(){id='';src='';void send({action:'stop'});},load(){},

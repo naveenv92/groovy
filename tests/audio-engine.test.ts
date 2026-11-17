@@ -32,3 +32,14 @@ test('native audio adapter reattaches to active playback without loading or paus
   const saved=await audio.restoreActive!();
   assert.equal(saved.item?.episode.id,'one');assert.equal(audio.currentTime,32);assert.equal(audio.paused,false);assert.deepEqual(commands,[]);
 });
+
+test('native load passes a compact snapshot instead of the full podcast feed',()=>{
+  const commands:Record<string,unknown>[]=[];
+  const native:NativePlayer={command:async value=>{commands.push(value);},snapshot:async()=>({item:null,position:0,playing:false}),addListener:async()=>({remove:async()=>{}})};
+  const feed={...item.podcast,description:'Long podcast description',episodes:Array(500).fill({...item.episode,description:'Long episode description'.repeat(100)})};
+  const audio=createNativeAudioEngine(native);
+  audio.configure!({episode:item.episode,podcast:feed},15,30);
+  const snapshot=commands[0].item as Playback;
+  assert.deepEqual(snapshot.podcast,item.podcast);
+  assert.ok(JSON.stringify(snapshot).length<1000);
+});
