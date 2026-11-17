@@ -8,7 +8,7 @@ import { listeningStats } from './stats';
 import { mediaArtwork } from './media-artwork';
 import { seekPosition, playbackSpeed, findResume, playbackSnapshot, loadPaused } from './playback';
 
-import { api, nativeIOS } from './api';
+import { api, nativeIOS, nativeBridge } from './api';
 import { createAudioEngine } from './audio-engine';
 if(nativeIOS)document.documentElement.classList.add('native-ios');
 const clock = (seconds: number) => { const n = Math.floor(Number.isFinite(seconds) ? Math.max(0,seconds) : 0); return `${Math.floor(n/60)}:${String(n%60).padStart(2,'0')}`; };
@@ -62,6 +62,11 @@ function App() {
   const [current,setCurrent]=useState<{episode:Episode;podcast:Podcast}|null>(null),[playing,setPlaying]=useState(false),[position,setPosition]=useState(0),[duration,setDuration]=useState(0),[buffering,setBuffering]=useState(false);
   const audio=useRef(useMemo(createAudioEngine,[])),accountRef=useRef(account),currentRef=useRef(current),restore=useRef(0),feedRequest=useRef(0),lastSave=useRef(0);
   accountRef.current=account; currentRef.current=current;
+  useEffect(()=>{
+    if(!nativeIOS)return;
+    const listener=nativeBridge.addListener('progressSyncError',event=>setError(`Listening progress could not sync: ${event.message} It is saved on this device for retry.`));
+    return()=>{void listener.then(handle=>handle.remove());};
+  },[]);
   useEffect(()=>{api<Account>('me').then(setAccount).catch(e=>{if(e.message!=='Please sign in.')setError(e.message);}).finally(()=>setBoot(false));},[]);
   useEffect(()=>{
     if (boot || !account) return;

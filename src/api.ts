@@ -2,6 +2,7 @@ import { Capacitor, registerPlugin } from '@capacitor/core';
 
 export const nativeIOS = Capacitor.getPlatform() === 'ios';
 export const nativeBridge = registerPlugin<{
+  addListener(name:'progressSyncError',listener:(event:{message:string})=>void):Promise<{remove():Promise<void>}>;
   pendingProgress():Promise<{count:number}>;
   request(options:{path:string;method:string;data?:unknown}):Promise<{status:number;data:any}>;
 }>('Groovy');

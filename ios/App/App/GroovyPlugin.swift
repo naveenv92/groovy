@@ -13,11 +13,27 @@ final class GroovyPlugin: CAPPlugin, CAPBridgedPlugin, URLSessionTaskDelegate {
     let pluginMethods: [CAPPluginMethod] = [CAPPluginMethod(name: "request", returnType: CAPPluginReturnPromise), CAPPluginMethod(name: "command", returnType: CAPPluginReturnPromise), CAPPluginMethod(name: "snapshot", returnType: CAPPluginReturnPromise), CAPPluginMethod(name: "pendingProgress", returnType: CAPPluginReturnPromise)].compactMap{$0}
     private var account:String? {get{UserDefaults.standard.string(forKey:"groovy.account")} set{UserDefaults.standard.set(newValue,forKey:"groovy.account")}}
     private lazy var outbox=ProgressOutbox(defaults:.standard,account:{[weak self] in self?.account},send:{[weak self] snapshot,completion in
-        guard let self,let token=self.credential() else{completion(false);return}
+        guard let self else{completion(false);return}
+        guard let token=self.credential() else{self.notifyListeners("progressSyncError",data:["message":"Please sign in again to sync listening progress."]);completion(false);return}
         var request=URLRequest(url:URL(string:self.origin+"/api/progress")!);request.httpMethod="PUT"
         request.setValue(self.origin,forHTTPHeaderField:"Origin");request.setValue("application/json",forHTTPHeaderField:"Content-Type");request.setValue("session="+token,forHTTPHeaderField:"Cookie")
         do{request.httpBody=try JSONSerialization.data(withJSONObject:snapshot)}catch{completion(false);return}
-        self.session.dataTask(with:request){_,response,_ in DispatchQueue.main.async{completion((response as? HTTPURLResponse)?.statusCode==200)}}.resume()
+        var backgroundTask:UIBackgroundTaskIdentifier = .invalid
+        var networkTask:URLSessionDataTask?
+        let endBackgroundTask={
+            if backgroundTask != .invalid {UIApplication.shared.endBackgroundTask(backgroundTask);backgroundTask = .invalid}
+        }
+        backgroundTask=UIApplication.shared.beginBackgroundTask(withName:"Sync listening progress") {networkTask?.cancel();endBackgroundTask()}
+        networkTask=self.session.dataTask(with:request){data,response,error in DispatchQueue.main.async {
+            endBackgroundTask()
+            let success=(response as? HTTPURLResponse)?.statusCode==200
+            if !success {
+                let serverError=data.flatMap{try? JSONSerialization.jsonObject(with:$0) as? [String:Any]}?["error"] as? String
+                self.notifyListeners("progressSyncError",data:["message":serverError ?? error?.localizedDescription ?? "Server rejected the progress update."])
+            }
+            completion(success)
+        }}
+        networkTask?.resume()
     })
     override func load(){
         NativeAudio.shared.emit = {[weak self] state in self?.notifyListeners("state",data:state)}
@@ -29,7 +45,10 @@ final class GroovyPlugin: CAPPlugin, CAPBridgedPlugin, URLSessionTaskDelegate {
         let audio=NativeAudio.shared
         call.resolve(["item":audio.id.isEmpty ? NSNull():audio.item,"position":audio.player.currentTime().seconds.isFinite ? audio.player.currentTime().seconds:0,"playing":audio.player.rate>0])
     }
-    private func enqueue(_ snapshot:[String:Any]) {if outbox.enqueue(snapshot){outbox.flush()}}
+    private func enqueue(_ snapshot:[String:Any]) {
+        if outbox.enqueue(snapshot){outbox.flush()}
+        else{notifyListeners("progressSyncError",data:["message":"No account is available for saving listening progress."])}
+    }
     private let origin = "https://groovy.naveen-venkatesan.workers.dev"
     private var key: [String: Any] { [kSecClass as String:kSecClassGenericPassword,kSecAttrService as String:"com.naveenv92.groovy",kSecAttrAccount as String:"session"] }
     private lazy var session: URLSession = {
@@ -111,10 +130,11 @@ final class NativeAudio {
     var lastSaved=Date.distantPast
     var emit:(([String:Any])->Void)?
     var itemObservations:[NSKeyValueObservation]=[]
+    private var timeObserver:Any?
     var observation:NSKeyValueObservation?
     var interrupted=false
     init(){
-        player.addPeriodicTimeObserver(forInterval:CMTime(seconds:1,preferredTimescale:600),queue:.main){[weak self] _ in self?.publish()}
+        timeObserver=player.addPeriodicTimeObserver(forInterval:CMTime(seconds:1,preferredTimescale:600),queue:.main){[weak self] _ in self?.publish()}
         observation=player.observe(\.timeControlStatus,options:[.new]){[weak self] _,_ in DispatchQueue.main.async{self?.publish()}}
         NotificationCenter.default.addObserver(forName:.AVPlayerItemDidPlayToEndTime,object:nil,queue:.main){[weak self] notification in
             guard let self,notification.object as? AVPlayerItem === self.player.currentItem else{return}
@@ -138,6 +158,7 @@ final class NativeAudio {
         commands.nextTrackCommand.addTarget{[weak self] _ in self?.skip(1);return .success}
         commands.changePlaybackPositionCommand.addTarget{[weak self] event in guard let event=event as? MPChangePlaybackPositionCommandEvent else{return .commandFailed};self?.seek(event.positionTime);return .success}
     }
+    deinit{if let timeObserver{player.removeTimeObserver(timeObserver)}}
     func pause(){interrupted=false;let active=player.timeControlStatus != .paused;player.pause();if active{publish(saveNow:true)}}
     func play() throws {
         guard player.currentItem != nil,!suppressSaving else{return}

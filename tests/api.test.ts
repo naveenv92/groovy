@@ -258,3 +258,16 @@ test('library layout persists per account without changing playback settings',as
     assert.equal((await me()).libraryView,'tiles');
   }finally{sqlite.close();}
 });
+
+test('unfinished native playback can resume in a separate browser session',async()=>{
+  const {request,sqlite}=await setup();try{
+    const login=async()=>{const response=await request('login','POST',{password:'alice'.repeat(10)});return response.headers.get('set-cookie')!.split(';')[0];};
+    const native=await login(),browser=await login();
+    const playback={episode:{id:'native-episode',title:'Episode',audio:'https://example.org/audio.mp3',artwork:'',duration:120,description:'',date:''},podcast:{url:'https://example.org/rss',title:'Podcast',author:'Author',artwork:''}};
+    assert.equal((await request('progress','PUT',{id:'native-episode',position:23,completed:false,playback},native)).status,200);
+    const account=await (await request('me','GET',undefined,browser)).json() as any;
+    const {findResume}=await import('../src/playback');
+    const resumed=await findResume(account.resume,async()=>{throw new Error('Snapshot should not need a feed fetch');});
+    assert.equal(resumed?.episode.id,'native-episode');assert.equal(resumed?.position,23);
+  }finally{sqlite.close();}
+});
