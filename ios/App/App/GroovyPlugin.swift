@@ -12,39 +12,24 @@ final class GroovyPlugin: CAPPlugin, CAPBridgedPlugin, URLSessionTaskDelegate {
     let jsName = "Groovy"
     let pluginMethods: [CAPPluginMethod] = [CAPPluginMethod(name: "request", returnType: CAPPluginReturnPromise), CAPPluginMethod(name: "command", returnType: CAPPluginReturnPromise), CAPPluginMethod(name: "snapshot", returnType: CAPPluginReturnPromise), CAPPluginMethod(name: "pendingProgress", returnType: CAPPluginReturnPromise)].compactMap{$0}
     private var account:String? {get{UserDefaults.standard.string(forKey:"groovy.account")} set{UserDefaults.standard.set(newValue,forKey:"groovy.account")}}
-    private var pending:[String:[String:Any]] {get{UserDefaults.standard.dictionary(forKey:"groovy.pending") as? [String:[String:Any]] ?? [:]} set{UserDefaults.standard.set(newValue,forKey:"groovy.pending")}}
-    private var sending=false
-    private var waiters:[()->Void]=[]
-    private func finishFlush(){let callbacks=waiters;waiters=[];callbacks.forEach{$0()}}
+    private lazy var outbox=ProgressOutbox(defaults:.standard,account:{[weak self] in self?.account},send:{[weak self] snapshot,completion in
+        guard let self,let token=self.credential() else{completion(false);return}
+        var request=URLRequest(url:URL(string:self.origin+"/api/progress")!);request.httpMethod="PUT"
+        request.setValue(self.origin,forHTTPHeaderField:"Origin");request.setValue("application/json",forHTTPHeaderField:"Content-Type");request.setValue("session="+token,forHTTPHeaderField:"Cookie")
+        do{request.httpBody=try JSONSerialization.data(withJSONObject:snapshot)}catch{completion(false);return}
+        self.session.dataTask(with:request){_,response,_ in DispatchQueue.main.async{completion((response as? HTTPURLResponse)?.statusCode==200)}}.resume()
+    })
     override func load(){
         NativeAudio.shared.emit = {[weak self] state in self?.notifyListeners("state",data:state)}
         NativeAudio.shared.save = {[weak self] snapshot in self?.enqueue(snapshot)}
-        NotificationCenter.default.addObserver(forName:UIApplication.didBecomeActiveNotification,object:nil,queue:.main){[weak self] _ in self?.flush();NativeAudio.shared.publish()}
+        NotificationCenter.default.addObserver(forName:UIApplication.didBecomeActiveNotification,object:nil,queue:.main){[weak self] _ in self?.outbox.flush();NativeAudio.shared.publish()}
     }
-    @objc func pendingProgress(_ call:CAPPluginCall){waiters.append{call.resolve(["count":self.pending.count])};flush()}
+    @objc func pendingProgress(_ call:CAPPluginCall){outbox.flush{_ in call.resolve(["count":self.outbox.count])}}
     @objc func snapshot(_ call:CAPPluginCall){
         let audio=NativeAudio.shared
         call.resolve(["item":audio.id.isEmpty ? NSNull():audio.item,"position":audio.player.currentTime().seconds.isFinite ? audio.player.currentTime().seconds:0,"playing":audio.player.rate>0])
     }
-    private func enqueue(_ snapshot:[String:Any]) {
-        guard let account,let id=snapshot["id"] as? String else{return}
-        var values=pending;values[account+"|"+id]=snapshot;pending=values;flush()
-    }
-    private func flush(){
-        guard !sending else{return}
-        guard let account,let token=credential(),let entry=pending.first(where:{$0.key.hasPrefix(account+"|")}) else{finishFlush();return}
-        sending=true
-        var request=URLRequest(url:URL(string:origin+"/api/progress")!);request.httpMethod="PUT"
-        request.setValue(origin,forHTTPHeaderField:"Origin");request.setValue("application/json",forHTTPHeaderField:"Content-Type");request.setValue("session="+token,forHTTPHeaderField:"Cookie")
-        request.httpBody=try? JSONSerialization.data(withJSONObject:entry.value)
-        session.dataTask(with:request){_,response,_ in DispatchQueue.main.async {
-            self.sending=false
-            guard let response=response as? HTTPURLResponse,response.statusCode==200,self.account==account else{self.finishFlush();return}
-            var values=self.pending
-            if NSDictionary(dictionary:values[entry.key] ?? [:]).isEqual(to:entry.value){values.removeValue(forKey:entry.key)}
-            self.pending=values;self.flush()
-        }}.resume()
-    }
+    private func enqueue(_ snapshot:[String:Any]) {if outbox.enqueue(snapshot){outbox.flush()}}
     private let origin = "https://groovy.naveen-venkatesan.workers.dev"
     private var key: [String: Any] { [kSecClass as String:kSecClassGenericPassword,kSecAttrService as String:"com.naveenv92.groovy",kSecAttrAccount as String:"session"] }
     private lazy var session: URLSession = {
@@ -70,12 +55,22 @@ final class GroovyPlugin: CAPPlugin, CAPBridgedPlugin, URLSessionTaskDelegate {
     }
     func urlSession(_ session:URLSession,task:URLSessionTask,willPerformHTTPRedirection response:HTTPURLResponse,newRequest request:URLRequest,completionHandler:@escaping(URLRequest?)->Void) { completionHandler(nil) }
     @objc func request(_ call:CAPPluginCall) {
-        if call.getString("path")=="me" {waiters.append{self.performRequest(call)};flush()}else{performRequest(call)}
+        if call.getString("path")=="me" {outbox.flush{_ in self.performRequest(call)}}else{performRequest(call)}
     }
     private func performRequest(_ call:CAPPluginCall) {
         guard let path=call.getString("path"),let method=call.getString("method"),["GET","POST","PUT","DELETE"].contains(method),let url=URL(string:origin+"/api/"+path),url.scheme=="https",url.host=="groovy.naveen-venkatesan.workers.dev",url.path.hasPrefix("/api/"),!path.contains(".."),!path.hasPrefix("/") else { call.reject("Invalid API request.");return }
-        if path=="progress",method=="PUT",let data=call.getObject("data") {if data["id"] as? String == NativeAudio.shared.id {NativeAudio.shared.player.pause();NativeAudio.shared.id=""};enqueue(data);call.resolve(["status":200,"data":["ok":true]]);return}
-        if path=="logout" {NativeAudio.shared.pause();if !pending.isEmpty && call.getObject("data")?["discardPending"] as? Bool != true {call.reject("Progress is still waiting to sync. Please retry sign out when connected.");flush();return}}
+        if path=="progress",method=="PUT",let data=call.getObject("data") {
+            guard outbox.enqueue(data) else{call.reject("Please sign in before saving progress.");return}
+            // Stop native snapshots before they can overwrite an explicit played/unplayed change.
+            let markedID=data["id"] as? String
+            if markedID == NativeAudio.shared.id {NativeAudio.shared.suppressSaving=true;NativeAudio.shared.pause()}
+            outbox.flush{success in
+                if success{call.resolve(["status":200,"data":["ok":true]])}
+                else{if markedID == NativeAudio.shared.id {NativeAudio.shared.suppressSaving=false};call.reject("Could not sync episode status. The change is kept on this device and will retry when connected.")}
+            }
+            return
+        }
+        if path=="logout" {NativeAudio.shared.pause();if outbox.count>0 && call.getObject("data")?["discardPending"] as? Bool != true {call.reject("Progress is still waiting to sync. Please retry sign out when connected.");outbox.flush();return}}
         var request=URLRequest(url:url); request.httpMethod=method
         request.setValue(origin,forHTTPHeaderField:"Origin")
         request.setValue("application/json",forHTTPHeaderField:"Content-Type")
@@ -93,9 +88,9 @@ final class GroovyPlugin: CAPPlugin, CAPBridgedPlugin, URLSessionTaskDelegate {
                 let result=try JSONSerialization.jsonObject(with:data)
                 if path=="me",response.statusCode==200,(result as? [String:Any])?["accountId"] as? String == nil {call.reject("Update the Groovy server before using the native app.");return}
                 if path=="me",response.statusCode==200,let value=result as? [String:Any],let account=value["accountId"] as? String {
-                    DispatchQueue.main.async {self.account=account;self.flush()}
+                    DispatchQueue.main.async {self.account=account;self.outbox.flush()}
                 }
-                if path=="logout",response.statusCode==200 {DispatchQueue.main.async{self.account=nil;self.pending=[:];NativeAudio.shared.player.pause();NativeAudio.shared.id="";MPNowPlayingInfoCenter.default().nowPlayingInfo=nil}}
+                if path=="logout",response.statusCode==200 {DispatchQueue.main.async{self.account=nil;self.outbox.clear();NativeAudio.shared.player.pause();NativeAudio.shared.id="";MPNowPlayingInfoCenter.default().nowPlayingInfo=nil}}
                 call.resolve(["status":response.statusCode,"data":result])
             } catch {call.reject("Could not process the API response.",nil,error)}
         }.resume()
@@ -111,6 +106,7 @@ final class NativeAudio {
     var item:[String:Any] = [:]
     var id="",speed:Float=1,back:Double=15,forward:Double=30
     var save:(([String:Any])->Void)?
+    var suppressSaving=false
     var wasPaused=true
     var lastSaved=Date.distantPast
     var emit:(([String:Any])->Void)?
@@ -144,7 +140,7 @@ final class NativeAudio {
     }
     func pause(){interrupted=false;let active=player.timeControlStatus != .paused;player.pause();if active{publish(saveNow:true)}}
     func play() throws {
-        guard player.currentItem != nil else{return}
+        guard player.currentItem != nil,!suppressSaving else{return}
         try AVAudioSession.sharedInstance().setCategory(.playback,mode:.spokenAudio)
         try AVAudioSession.sharedInstance().setActive(true)
         player.playImmediately(atRate:speed)
@@ -156,7 +152,7 @@ final class NativeAudio {
         let position=player.currentTime().seconds,duration=player.currentItem?.duration.seconds ?? 0
         let state:[String:Any] = ["id":id,"position":position.isFinite ? position:0,"duration":duration.isFinite ? duration:0,"paused":player.rate==0,"ended":ended,"buffering":player.timeControlStatus == .waitingToPlayAtSpecifiedRate,"error":player.currentItem?.error?.localizedDescription ?? ""]
         emit?(state)
-        if saveNow || ended || (player.rate==0 && !wasPaused) || (player.rate>0 && Date().timeIntervalSince(lastSaved)>=10) {
+        if !suppressSaving && (saveNow || ended || (player.rate==0 && !wasPaused) || (player.rate>0 && Date().timeIntervalSince(lastSaved)>=10)) {
             lastSaved=Date()
             if var episode=item["episode"] as? [String:Any],let podcast=item["podcast"] as? [String:Any] {
                 episode["duration"]=duration.isFinite && duration>0 ? duration : episode["duration"]
@@ -174,7 +170,7 @@ final class NativeAudio {
     }
     func load(_ value:[String:Any],back:Double,forward:Double) throws {
         guard let episode=value["episode"] as? [String:Any],let podcast=value["podcast"] as? [String:Any],let id=episode["id"] as? String,let source=episode["audio"] as? String,let url=URL(string:source),["https","http"].contains(url.scheme ?? "") else{throw NSError(domain:"Playback",code:1)}
-        publish(saveNow:true);player.pause();self.id=id;item=value;self.back=back;self.forward=forward
+        publish(saveNow:true);player.pause();suppressSaving=false;self.id=id;item=value;self.back=back;self.forward=forward
         let audio=AVPlayerItem(url:url);audio.audioTimePitchAlgorithm = .timeDomain;player.replaceCurrentItem(with:audio)
         itemObservations=[audio.observe(\.duration,options:[.new]){[weak self] _,_ in DispatchQueue.main.async{self?.publish()}},audio.observe(\.status,options:[.new]){[weak self] _,_ in DispatchQueue.main.async{self?.publish()}}]
         MPRemoteCommandCenter.shared().skipBackwardCommand.preferredIntervals=[NSNumber(value:back)]

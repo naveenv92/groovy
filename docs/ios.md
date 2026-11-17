@@ -20,7 +20,7 @@ The UI is bundled, not remotely updated: after UI changes, run `npm run ios:sync
 - Native remote commands support play, pause, toggle, seek, and configurable skip intervals. Previous/next also map to skips. Artwork is decoded by iOS and supplied as native Now Playing artwork; its availability in a particular car still requires hardware testing.
 - Swift writes progress every ten seconds during playback and on pause, seek completion, episode changes, and completion. The latest unsynced snapshot per account/episode is retained in app-private preferences. Failed writes retry during playback or on foreground entry.
 - Writes are serialized, and an older response cannot remove a newer queued snapshot. Pending writes flush before account refresh. Cross-device conflicts retain the existing last-successful-write behavior.
-- Mark played/unplayed enters the same queue. It updates the UI immediately; server persistence may wait for connectivity. Marking the current episode stops its playback.
+- Mark played/unplayed enters the same queue and waits for server confirmation before updating the UI. Failed saves show an error and remain queued for retry. Marking the current episode stops its playback.
 - Sign-out first attempts to flush progress; if records remain, it asks for confirmation before discarding them. Expired authentication preserves account-isolated snapshots for the same account's next login.
 - A web-view reload reconnects to the live native player. A cold app launch restores unfinished server progress paused; zero-progress and completed episodes do not restore. Force-quitting stops playback.
 
@@ -28,7 +28,7 @@ This version does not download episodes or cache the library for offline use. Bu
 
 ## Verification
 
-Run `npm test` and `npm run ios:sync`. For native tests:
+Run `npm test`, `npm run test:native-progress`, and `npm run ios:sync`. The native progress checks run with Swift on the Mac without a simulator. For native tests:
 
 ```
 xcodebuild -project ios/App/App.xcodeproj -scheme Groovy \

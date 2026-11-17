@@ -11,7 +11,8 @@
     "user": "node scripts/user.mjs",
     "deploy": "npm run build && wrangler deploy",
     "ios:sync": "npm run build && cap sync ios",
-    "ios:open": "cap open ios"
+    "ios:open": "cap open ios",
+    "test:native-progress": "cat ios/App/App/ProgressOutbox.swift tests/native-progress.swift | swift -"
   },
   "license": "ISC",
   "type": "module",

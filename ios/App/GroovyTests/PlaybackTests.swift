@@ -36,6 +36,17 @@ final class PlaybackTests:XCTestCase {
         XCTAssertEqual(episode?["duration"] as? Int,100)
         XCTAssertEqual(episode?["description"] as? String,"")
     }
+    func testExplicitStatusCannotBeOverwrittenByPlayerSnapshots() {
+        let audio=NativeAudio.shared
+        audio.player.replaceCurrentItem(with:nil);audio.id="test";audio.item=["episode":["id":"test"],"podcast":[:]]
+        var count=0;audio.save={_ in count+=1};audio.suppressSaving=true
+        defer{audio.suppressSaving=false;audio.save=nil;audio.id="";audio.item=[:]}
+        audio.publish(saveNow:true)
+        XCTAssertEqual(count,0)
+        audio.suppressSaving=false
+        audio.publish(saveNow:true)
+        XCTAssertEqual(count,1)
+    }
     func testPausedObserverUpdatesDoNotKeepSaving() {
         let audio=NativeAudio.shared
         audio.player.replaceCurrentItem(with:nil);audio.id="test";audio.item=["episode":["id":"test"],"podcast":[:]];audio.wasPaused=true
