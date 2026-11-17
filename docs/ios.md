@@ -23,7 +23,7 @@ The UI is bundled, not remotely updated: after UI changes, run `npm run ios:sync
 - Writes are serialized, and an older response cannot remove a newer queued snapshot. Pending writes flush before account refresh. Cross-device conflicts retain the existing last-successful-write behavior.
 - Mark played/unplayed enters the same queue and waits for server confirmation before updating the UI. Failed saves show an error and remain queued for retry. Marking the current episode stops its playback.
 - Sign-out first attempts to flush progress; if records remain, it asks for confirmation before discarding them. Expired authentication preserves account-isolated snapshots for the same account's next login.
-- A web-view reload reconnects to the live native player. A cold app launch restores unfinished server progress paused; zero-progress and completed episodes do not restore. Force-quitting stops playback.
+- Opening or foregrounding the native app fetches account progress again. A paused player adopts the latest server episode and position, including browser changes; actively playing or unsynced local playback is preserved. Passive restoration seeks do not create progress writes, and an unchanged paused player does not resave its old position when backgrounded. A cold launch restores unfinished server progress paused; zero-progress and completed episodes do not restore. Force-quitting stops playback.
 
 This version does not download episodes or cache the library for offline use. Bundled UI can launch offline, but account data and streaming need connectivity. It does not provide a CarPlay browsing interface.
 

@@ -7,3 +7,5 @@ export interface Playback { episode: Episode; podcast: Podcast }
 export interface ResumeCandidate { id: string; position: number; playback: Playback | null }
 
 export interface ListeningHistory extends Playback { position: number; completed: boolean; updatedAt: number }
+
+export interface ActivePlayback { item: Playback | null; position: number; playing: boolean; unsynced?: boolean }

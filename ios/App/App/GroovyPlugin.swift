@@ -38,12 +38,12 @@ final class GroovyPlugin: CAPPlugin, CAPBridgedPlugin, URLSessionTaskDelegate {
     override func load(){
         NativeAudio.shared.emit = {[weak self] state in self?.notifyListeners("state",data:state)}
         NativeAudio.shared.save = {[weak self] snapshot in self?.enqueue(snapshot)}
-        NotificationCenter.default.addObserver(forName:UIApplication.didBecomeActiveNotification,object:nil,queue:.main){[weak self] _ in self?.outbox.flush();NativeAudio.shared.publish()}
+        NotificationCenter.default.addObserver(forName:UIApplication.didBecomeActiveNotification,object:nil,queue:.main){[weak self] _ in self?.outbox.flush();NativeAudio.shared.publish();self?.notifyListeners("foreground",data:[:])}
     }
     @objc func pendingProgress(_ call:CAPPluginCall){outbox.flush{_ in call.resolve(["count":self.outbox.count])}}
     @objc func snapshot(_ call:CAPPluginCall){
         let audio=NativeAudio.shared
-        call.resolve(["item":audio.id.isEmpty ? NSNull():audio.item,"position":audio.player.currentTime().seconds.isFinite ? audio.player.currentTime().seconds:0,"playing":audio.player.rate>0])
+        call.resolve(["item":audio.id.isEmpty ? NSNull():audio.item,"position":audio.player.currentTime().seconds.isFinite ? audio.player.currentTime().seconds:0,"playing":audio.player.rate>0,"unsynced":outbox.hasPendingForCurrentAccount || audio.hasLocalChanges || audio.restoring])
     }
     private func enqueue(_ snapshot:[String:Any]) {
         if outbox.enqueue(snapshot){outbox.flush()}
@@ -82,7 +82,7 @@ final class GroovyPlugin: CAPPlugin, CAPBridgedPlugin, URLSessionTaskDelegate {
             guard outbox.enqueue(data) else{call.reject("Please sign in before saving progress.");return}
             // Stop native snapshots before they can overwrite an explicit played/unplayed change.
             let markedID=data["id"] as? String
-            if markedID == NativeAudio.shared.id {NativeAudio.shared.suppressSaving=true;NativeAudio.shared.pause()}
+            if markedID == NativeAudio.shared.id {NativeAudio.shared.suppressSaving=true;NativeAudio.shared.pause();NativeAudio.shared.hasLocalChanges=false}
             outbox.flush{success in
                 if success{call.resolve(["status":200,"data":["ok":true]])}
                 else{if markedID == NativeAudio.shared.id {NativeAudio.shared.suppressSaving=false};call.reject("Could not sync episode status. The change is kept on this device and will retry when connected.")}
@@ -126,6 +126,8 @@ final class NativeAudio {
     var id="",speed:Float=1,back:Double=15,forward:Double=30
     var save:(([String:Any])->Void)?
     var suppressSaving=false
+    var hasLocalChanges=false
+    var restoring=false
     var wasPaused=true
     var lastSaved=Date.distantPast
     var emit:(([String:Any])->Void)?
@@ -159,22 +161,25 @@ final class NativeAudio {
         commands.changePlaybackPositionCommand.addTarget{[weak self] event in guard let event=event as? MPChangePlaybackPositionCommandEvent else{return .commandFailed};self?.seek(event.positionTime);return .success}
     }
     deinit{if let timeObserver{player.removeTimeObserver(timeObserver)}}
-    func pause(){interrupted=false;let active=player.timeControlStatus != .paused;player.pause();if active{publish(saveNow:true)}}
+    func pause(){interrupted=false;let active=player.timeControlStatus != .paused;player.pause();if active{hasLocalChanges=true;publish(saveNow:true)}}
     func play() throws {
         guard player.currentItem != nil,!suppressSaving else{return}
         try AVAudioSession.sharedInstance().setCategory(.playback,mode:.spokenAudio)
         try AVAudioSession.sharedInstance().setActive(true)
+        hasLocalChanges=true
         player.playImmediately(atRate:speed)
     }
-    func seek(_ value:Double){guard value.isFinite else{return};let duration=player.currentItem?.duration.seconds ?? .infinity;player.seek(to:CMTime(seconds:max(0,min(value,duration.isFinite ? duration : value)),preferredTimescale:600)){_ in self.publish(saveNow:true)}}
+    func seek(_ value:Double){guard value.isFinite else{return};hasLocalChanges=true;let duration=player.currentItem?.duration.seconds ?? .infinity;player.seek(to:CMTime(seconds:max(0,min(value,duration.isFinite ? duration : value)),preferredTimescale:600)){_ in self.publish(saveNow:true)}}
     func skip(_ direction:Double){seek(player.currentTime().seconds+direction*(direction<0 ? back:forward))}
     func publish(ended:Bool=false,saveNow:Bool=false){
-        guard !id.isEmpty else{return}
+        guard !id.isEmpty,!restoring else{return}
+        if player.rate>0 {hasLocalChanges=true}
         let position=player.currentTime().seconds,duration=player.currentItem?.duration.seconds ?? 0
         let state:[String:Any] = ["id":id,"position":position.isFinite ? position:0,"duration":duration.isFinite ? duration:0,"paused":player.rate==0,"ended":ended,"buffering":player.timeControlStatus == .waitingToPlayAtSpecifiedRate,"error":player.currentItem?.error?.localizedDescription ?? ""]
         emit?(state)
-        if !suppressSaving && (saveNow || ended || (player.rate==0 && !wasPaused) || (player.rate>0 && Date().timeIntervalSince(lastSaved)>=10)) {
+        if !suppressSaving && (hasLocalChanges || ended) && (saveNow || ended || (player.rate==0 && !wasPaused) || (player.rate>0 && Date().timeIntervalSince(lastSaved)>=10)) {
             lastSaved=Date()
+            hasLocalChanges=false
             if var episode=item["episode"] as? [String:Any],let podcast=item["podcast"] as? [String:Any] {
                 episode["duration"]=duration.isFinite && duration>0 ? duration : episode["duration"]
                 episode["description"]="";episode["date"]=""
@@ -189,11 +194,16 @@ final class NativeAudio {
         MPNowPlayingInfoCenter.default().nowPlayingInfo=info
         if ended {id="";player.replaceCurrentItem(with:nil);MPNowPlayingInfoCenter.default().nowPlayingInfo=nil;try? AVAudioSession.sharedInstance().setActive(false,options:.notifyOthersOnDeactivation)}
     }
-    func load(_ value:[String:Any],back:Double,forward:Double) throws {
+    func load(_ value:[String:Any],back:Double,forward:Double,position:Double=0) throws {
         guard let episode=value["episode"] as? [String:Any],let podcast=value["podcast"] as? [String:Any],let id=episode["id"] as? String,let source=episode["audio"] as? String,let url=URL(string:source),["https","http"].contains(url.scheme ?? "") else{throw NSError(domain:"Playback",code:1)}
-        publish(saveNow:true);player.pause();suppressSaving=false;self.id=id;item=value;self.back=back;self.forward=forward
+        publish(saveNow:true);player.pause();suppressSaving=false;hasLocalChanges=false;restoring=position>0 && position.isFinite;self.id=id;item=value;self.back=back;self.forward=forward
         let audio=AVPlayerItem(url:url);audio.audioTimePitchAlgorithm = .timeDomain;player.replaceCurrentItem(with:audio)
         itemObservations=[audio.observe(\.duration,options:[.new]){[weak self] _,_ in DispatchQueue.main.async{self?.publish()}},audio.observe(\.status,options:[.new]){[weak self] _,_ in DispatchQueue.main.async{self?.publish()}}]
+        if position>0 && position.isFinite {
+            player.seek(to:CMTime(seconds:position,preferredTimescale:600)){[weak self] _ in
+                DispatchQueue.main.async{guard let self,self.player.currentItem === audio else{return};self.restoring=false;self.publish()}
+            }
+        }
         MPRemoteCommandCenter.shared().skipBackwardCommand.preferredIntervals=[NSNumber(value:back)]
         MPRemoteCommandCenter.shared().skipForwardCommand.preferredIntervals=[NSNumber(value:forward)]
         MPNowPlayingInfoCenter.default().nowPlayingInfo=[MPMediaItemPropertyTitle:episode["title"] as? String ?? "",MPMediaItemPropertyArtist:podcast["title"] as? String ?? "",MPMediaItemPropertyAlbumTitle:podcast["title"] as? String ?? ""]
@@ -210,7 +220,7 @@ extension GroovyPlugin {
             audio.emit = {[weak self] state in self?.notifyListeners("state",data:state)}
             do {
                 switch call.getString("action") {
-                case "load":try audio.load(call.getObject("item") ?? [:],back:call.getDouble("back") ?? 15,forward:call.getDouble("forward") ?? 30)
+                case "load":try audio.load(call.getObject("item") ?? [:],back:call.getDouble("back") ?? 15,forward:call.getDouble("forward") ?? 30,position:call.getDouble("position") ?? 0)
                 case "play":try audio.play()
                 case "pause":audio.pause()
                 case "seek":audio.seek(call.getDouble("position") ?? 0)
@@ -221,7 +231,7 @@ extension GroovyPlugin {
                     MPRemoteCommandCenter.shared().skipBackwardCommand.preferredIntervals=[NSNumber(value:back)]
                     MPRemoteCommandCenter.shared().skipForwardCommand.preferredIntervals=[NSNumber(value:forward)]
                 case "speed":let value=call.getFloat("speed") ?? 1;guard value>=0.5 && value<=2 else{call.reject("Invalid speed");return};audio.speed=value;if audio.player.rate>0{audio.player.rate=value}
-                case "stop":audio.player.pause();audio.id="";audio.player.replaceCurrentItem(with:nil);MPNowPlayingInfoCenter.default().nowPlayingInfo=nil;try? AVAudioSession.sharedInstance().setActive(false,options:.notifyOthersOnDeactivation)
+                case "stop":audio.id="";audio.hasLocalChanges=false;audio.restoring=false;audio.player.pause();audio.player.replaceCurrentItem(with:nil);MPNowPlayingInfoCenter.default().nowPlayingInfo=nil;try? AVAudioSession.sharedInstance().setActive(false,options:.notifyOthersOnDeactivation)
                 default:call.reject("Unknown playback command");return
                 }
                 audio.publish();call.resolve()

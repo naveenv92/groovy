@@ -25,6 +25,7 @@ final class PlaybackTests:XCTestCase {
         audio.item=["episode":["id":"test","title":"Episode","duration":100,"description":"Long description","date":"today"],"podcast":["url":"https://example.org/rss","title":"Show"]]
         audio.save={snapshots.append($0)}
         defer{audio.save=nil;audio.id="";audio.item=[:]}
+        audio.hasLocalChanges=true
         audio.publish(saveNow:true)
         audio.publish(ended:true)
         XCTAssertEqual(snapshots.count,2)
@@ -39,13 +40,27 @@ final class PlaybackTests:XCTestCase {
     func testExplicitStatusCannotBeOverwrittenByPlayerSnapshots() {
         let audio=NativeAudio.shared
         audio.player.replaceCurrentItem(with:nil);audio.id="test";audio.item=["episode":["id":"test"],"podcast":[:]]
-        var count=0;audio.save={_ in count+=1};audio.suppressSaving=true
+        var count=0;audio.save={_ in count+=1};audio.suppressSaving=true;audio.hasLocalChanges=true
         defer{audio.suppressSaving=false;audio.save=nil;audio.id="";audio.item=[:]}
         audio.publish(saveNow:true)
         XCTAssertEqual(count,0)
         audio.suppressSaving=false
         audio.publish(saveNow:true)
         XCTAssertEqual(count,1)
+    }
+    func testPassiveRestoreAndBackgroundDoNotSaveStaleProgress() {
+        let audio=NativeAudio.shared
+        audio.player.replaceCurrentItem(with:nil);audio.id="test";audio.item=["episode":["id":"test"],"podcast":[:]]
+        audio.hasLocalChanges=false;audio.wasPaused=true;audio.restoring=false
+        var count=0;audio.save={_ in count+=1}
+        defer{audio.save=nil;audio.id="";audio.item=[:];audio.hasLocalChanges=false}
+        audio.publish(saveNow:true)
+        XCTAssertEqual(count,0,"Backgrounding a passively restored player must not overwrite server progress")
+        audio.hasLocalChanges=true
+        audio.publish(saveNow:true)
+        XCTAssertEqual(count,1,"A local playback change must still save")
+        audio.publish(saveNow:true)
+        XCTAssertEqual(count,1,"Backgrounding again without further activity must not rewrite the snapshot")
     }
     func testPausedObserverUpdatesDoNotKeepSaving() {
         let audio=NativeAudio.shared

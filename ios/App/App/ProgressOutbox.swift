@@ -12,6 +12,7 @@ final class ProgressOutbox {
         set {defaults.set(newValue,forKey:"groovy.pending")}
     }
     var count:Int {pending.count}
+    var hasPendingForCurrentAccount:Bool {guard let account=account() else{return false};return pending.keys.contains{$0.hasPrefix(account+"|")}}
     init(defaults:UserDefaults,account:@escaping()->String?,send:@escaping(Snapshot,@escaping(Bool)->Void)->Void){self.defaults=defaults;self.account=account;self.send=send}
     @discardableResult func enqueue(_ snapshot:Snapshot)->Bool {
         guard let account=account(),let id=snapshot["id"] as? String else{return false}

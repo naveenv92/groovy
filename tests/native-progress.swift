@@ -33,6 +33,7 @@ account="bob"
 let before=requests.count
 outbox.flush()
 assert(requests.count==before,"Another account cannot send Alice's markers")
+assert(!outbox.hasPendingForCurrentAccount)
 account="alice"
 outbox.flush()
 assert(requests.count==before+1)

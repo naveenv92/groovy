@@ -9,9 +9,10 @@ export function seekPosition(value: number, duration: number) {
   return Math.max(0, Math.min(Number.isFinite(duration) && duration >= 0 ? duration : Infinity, value));
 }
 
-import type { Feed, Playback, ResumeCandidate } from './types';
+import type { Feed, Playback, ResumeCandidate, ActivePlayback } from './types';
 
-export async function findResume(candidates: ResumeCandidate[], loadFeed: (url: string) => Promise<Feed>) {
+export async function findResume(candidates: ResumeCandidate[], loadFeed: (url: string) => Promise<Feed>, active?: ActivePlayback): Promise<(Playback & {position:number;playing?:boolean}) | null> {
+  if(active?.item && (active.playing || active.unsynced))return {...active.item,position:active.position,playing:active.playing};
   for (const saved of candidates) {
     if (!Number.isFinite(saved.position) || saved.position < 1) continue;
     if (saved.playback) {

@@ -43,3 +43,23 @@ test('native load passes a compact snapshot instead of the full podcast feed',()
   assert.deepEqual(snapshot.podcast,item.podcast);
   assert.ok(JSON.stringify(snapshot).length<1000);
 });
+
+test('native restoration loads the saved position without issuing a user seek',()=>{
+  const commands:Record<string,unknown>[]=[];
+  const native:NativePlayer={command:async value=>{commands.push(value);},snapshot:async()=>({item:null,position:0,playing:false}),addListener:async()=>({remove:async()=>{}})};
+  const audio=createNativeAudioEngine(native);
+  audio.configure!(item,15,30,65);
+  assert.equal(commands[0].position,65);assert.equal(audio.currentTime,65);
+  assert.deepEqual(commands.map(command=>command.action),['load']);
+});
+
+test('a delayed native snapshot cannot overwrite a newly selected episode',async()=>{
+  let reply!:(value:{item:Playback;position:number;playing:boolean})=>void;
+  const native:NativePlayer={command:async()=>{},snapshot:()=>new Promise(resolve=>{reply=resolve;}),addListener:async()=>({remove:async()=>{}})};
+  const audio=createNativeAudioEngine(native);
+  const pending=audio.restoreActive!();
+  const next={...item,episode:{...item.episode,id:'new',audio:'https://example.org/new.mp3'}};
+  audio.configure!(next,15,30,40);
+  reply({item,position:10,playing:false});await pending;
+  assert.equal(audio.currentSrc,next.episode.audio);assert.equal(audio.currentTime,40);
+});

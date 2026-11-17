@@ -52,3 +52,18 @@ test('resume ignores zero progress and invalid positions without loading their f
   const saved=await findResume([{...zero,playback:item},{id:'started',position:12,playback:item}],async()=>{throw new Error();});
   assert.equal(saved?.position,12);
 });
+
+test('server resume wins over an idle native player, including changed and completed episodes',async()=>{
+  const {findResume}=await import('../src/playback');
+  const episode={id:'remote',title:'Episode',audio:'https://example.org/audio.mp3',artwork:'',duration:100,description:'',date:''};
+  const podcast={url:'https://example.org/feed',title:'Show',author:'',artwork:''};
+  const cached={item:{episode:{...episode,id:'old'},podcast},position:10,playing:false};
+  const load=async()=>{throw new Error('Snapshot should not need a feed request');};
+  const resumed=await findResume([{id:'remote',position:60,playback:{episode,podcast}}],load,cached);
+  assert.equal(resumed?.episode.id,'remote');assert.equal(resumed?.position,60);
+  assert.equal(await findResume([],load,cached),null);
+  const playing=await findResume([],load,{...cached,playing:true});
+  assert.equal(playing?.episode.id,'old');assert.equal(playing?.playing,true);
+  const unsynced=await findResume([],load,{...cached,unsynced:true});
+  assert.equal(unsynced?.episode.id,'old');assert.equal(unsynced?.position,10);
+});
